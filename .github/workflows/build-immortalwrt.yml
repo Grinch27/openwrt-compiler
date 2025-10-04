@@ -1033,6 +1033,14 @@ jobs:
           echo -e "make download: $(($(nproc) + 1)) thread"
           make download -j$(($(nproc) + 1))
 
+      - name: Test Before Compile
+        id: make-test
+        working-directory: ${{ env.path_openwrt }}
+        if: ${{ steps.package.conclusion }} == 'success' && !cancelled()
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
+
       - name: Compile the OpenWrt
         id: compile
         working-directory: ${{ env.path_openwrt }}
