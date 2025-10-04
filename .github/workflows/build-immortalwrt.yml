@@ -1022,7 +1022,7 @@ jobs:
         working-directory: ${{ env.path_openwrt }}
         run: |
           make dirclean
-          make tools/install
+          make tools/install -j$(($(nproc) + 1))
 
       - name: Download package
         id: package
