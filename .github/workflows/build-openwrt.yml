@@ -1039,6 +1039,14 @@ jobs:
           yes "" | make oldconfig
           cat ./.config
 
+      - name: Clean and rebuild host tools
+        id: make-clean
+        # if: ${{ 'true' == 'false' }} # disable
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          make dirclean
+          make tools/install -j$(($(nproc) + 1))
+
       - name: Download package
         id: package
         working-directory: ${{ env.path_openwrt }}
@@ -1049,6 +1057,14 @@ jobs:
           make download -j$(($(nproc) + 1))
           # find dl -size -1024c -exec ls -l {} \;
           # find dl -size -1024c -exec rm -f {} \;
+
+      - name: Test Before Compile
+        id: make-test
+        if: ${{ 'true' == 'false' }} # disable
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          # grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
 
       - name: Compile the OpenWrt
         id: compile
