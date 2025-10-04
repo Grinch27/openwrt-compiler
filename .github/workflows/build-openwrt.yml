@@ -963,6 +963,7 @@ jobs:
 
       - name: Clean host tools
         id: make-clean
+        # if: ${{ 'true' == 'false' }} # disable
         working-directory: ${{ env.path_openwrt }}
         run: |
           make dirclean
