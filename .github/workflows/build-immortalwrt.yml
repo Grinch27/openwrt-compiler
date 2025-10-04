@@ -986,11 +986,14 @@ jobs:
 
       - name: Test Before Compile
         id: make-test
-        if: ${{ 'true' == 'false' }} # disable
+        # if: ${{ 'true' == 'false' }} # disable
         working-directory: ${{ env.path_openwrt }}
         run: |
           echo -e "Current working directory: $(pwd)"
-          grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
+          # grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
+          make package/usign/host/install -j$(($(nproc) + 1)) V=s
+          # 构建即校验 让流水线在拿不到二进制时立刻终止，并顺带输出 usign 的构建日志
+          test -x staging_dir/host/bin/usign || { echo "usign missing after host install"; exit 1; }
 
       - name: Compile the OpenWrt
         id: compile
