@@ -975,7 +975,7 @@ jobs:
         run: |
           make dirclean
           make tools/install -j$(($(nproc) + 1))
-          # make toolchain/install -j$(($(nproc) + 1))
+          make toolchain/install -j$(($(nproc) + 1))
 
       - name: Download package
         id: package
