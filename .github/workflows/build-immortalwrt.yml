@@ -969,22 +969,19 @@ jobs:
           cat ./.config
 
       - name: Clean & Rebuild host tools
-        id: make-clean
-        # if: ${{ 'true' == 'false' }} # disable
-        working-directory: ${{ env.path_openwrt }}
-        run: |
-          make dirclean
-          make tools/install -j$(($(nproc) + 1))
-          make toolchain/install -j$(($(nproc) + 1))
-
-      - name: Download package
         id: package
-        working-directory: ${{ env.path_openwrt }}
         if: ${{ steps.feeds-install.conclusion }} == 'success' && !cancelled()
+        working-directory: ${{ env.path_openwrt }}
         run: |
           echo -e "Current working directory: $(pwd)"
-          echo -e "make download: $(($(nproc) + 1)) thread"
+          echo -e "make: $(($(nproc) + 1)) thread"
+
+          make dirclean
+
+          # make download -> make tools/install -> make toolchain/install
           make download -j$(($(nproc) + 1))
+          make tools/install -j$(($(nproc) + 1))
+          make toolchain/install -j$(($(nproc) + 1))
 
       - name: Test Before Compile
         id: make-test
