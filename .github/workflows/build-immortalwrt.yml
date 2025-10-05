@@ -974,7 +974,7 @@ jobs:
         working-directory: ${{ env.path_openwrt }}
         run: |
           echo -e "Current working directory: $(pwd)"
-          echo -e "make: $(($(nproc) + 1)) thread"
+          echo -e "thread for make: $(($(nproc) + 1))"
 
           make dirclean
 
