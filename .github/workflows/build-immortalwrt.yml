@@ -1041,8 +1041,8 @@ jobs:
             echo "Filename: ${Filename_Kernel}"
             
             # 使用正则表达式匹配 'kernel-' 或 'kernel_' 后面的 x.y.z 版本号
-            # if [[ "${Filename_Kernel}" =~ kernel[-_]([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            if [[ "${Filename_Kernel}" =~ kernel[-_](\d+\.\d+\.\d+) ]]; then
+            # if [[ "${Filename_Kernel}" =~ kernel[-_](\d+\.\d+\.\d+) ]]; then
+            if [[ "${Filename_Kernel}" =~ kernel[-_]([0-9]+\.[0-9]+\.[0-9]+) ]]; then
               Version_Kernel="${BASH_REMATCH[1]}"
 
               echo "Kernel version: ${Version_Kernel}"
