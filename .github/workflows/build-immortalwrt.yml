@@ -987,7 +987,7 @@ jobs:
 
       - name: Test Before Compile
         id: make-test
-        # if: ${{ 'true' == 'false' }} # disable
+        if: ${{ 'true' == 'false' }} # disable
         working-directory: ${{ env.path_openwrt }}
         run: |
           echo -e "Current working directory: $(pwd)"
