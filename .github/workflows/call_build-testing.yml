@@ -40,7 +40,8 @@ jobs:
   openwrt:
     name: ${{ matrix.openwrt_branch }}
     needs: heads
-    uses: ./.github/workflows/build-immortalwrt.yml
+    # uses: ./.github/workflows/build-immortalwrt.yml
+    uses: Grinch27/openwrt-compiler/.github/workflows/build-immortalwrt.yml@main
     strategy:
       fail-fast: false
       matrix:
