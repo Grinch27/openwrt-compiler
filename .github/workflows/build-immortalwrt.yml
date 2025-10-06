@@ -272,8 +272,6 @@ jobs:
       - name: (Purge) Snap
         id: snap-purge
         uses: Grinch27/github-actions/.github/actions/clean-snap@main
-        with:
-          runnerImage: ${{ inputs.runner_image || 'ubuntu-latest' }}
 
       - name: (Clean) Docker Images
         id: docker-clean
