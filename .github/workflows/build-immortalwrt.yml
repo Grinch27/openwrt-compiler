@@ -271,8 +271,7 @@ jobs:
       # ========== General Environment Setup: Start ==========
       - name: (Purge) Snap
         id: snap-purge
-        # if: ${{ env.purge_snap == 'true' }} && !cancelled()
-        uses: Grinch27/github-actions/.github/workflows/clean-snap.yml@main
+        uses: Grinch27/github-actions/.github/actions/clean-snap@main
         with:
           runnerImage: ${{ inputs.runner_image || 'ubuntu-latest' }}
 
