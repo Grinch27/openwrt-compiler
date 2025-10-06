@@ -625,7 +625,7 @@ jobs:
           java-version: ${{ env.jdk_version }}
 
       - name: (Install) Docker
-        id: docker-install
+        id: setup-docker
         if: ${{ env.docker_install == 'true' }}
         uses: Grinch27/github-actions/.github/actions/setup-docker@main
 
