@@ -356,25 +356,8 @@ jobs:
           mnt_num: 1
 
       - name: (Check) environment
-        id: check-env
-        working-directory: /
-        run: |
-          echo -e "Current working directory: $(pwd)"
-          df -Th
-
-          echo -e "---------- List all environment variables ----------"
-          printenv
-
-          echo -e "---------- List all installed packages ----------"
-          apt list --installed
-          dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n
-
-          echo -e "---------- Verify Make version ----------"
-          make --version
-
-          echo -e "---------- Verify GCC version ----------"
-          gcc --version
-          g++ --version
+        id: check-toolchain
+        uses: Grinch27/github-actions/.github/actions/check-toolchain@main
 
       # ========== General Environment Setup: End ==========
 
