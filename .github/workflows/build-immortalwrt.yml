@@ -287,7 +287,7 @@ jobs:
         uses: Grinch27/github-actions/.github/actions/purge-gcc@main
 
       - name: (Install) GCC - ${{ env.gcc_version }}
-        id: gcc-install
+        id: setup-gcc
         if: ${{ env.gcc_install == 'true' }}
         uses: Grinch27/github-actions/.github/actions/setup-gcc@main
 
@@ -316,7 +316,7 @@ jobs:
           clang_version: ${{ env.clang_version }}
 
       - name: (Switch) AArch64 Cross-Compiler - ${{ env.gcc_version }}
-        id: switch-aarch64-gcc
+        id: switch-gcc_aarch64
         if: ${{ inputs.Target_System == 'MediaTek_Ralink_ARM' }}
         uses: Grinch27/github-actions/.github/actions/switch-gcc_aarch64@main
         with:
@@ -328,7 +328,7 @@ jobs:
         uses: Grinch27/github-actions/.github/actions/purge-jdk@main
 
       - name: (Install) JDK - ${{ env.jdk_version }}
-        id: jdk-install
+        id: setup-jdk
         if: ${{ env.jdk_install == 'true' }}
         uses: actions/setup-java@main
         with:
@@ -341,7 +341,7 @@ jobs:
         uses: Grinch27/github-actions/.github/actions/setup-docker@main
 
       - name: (Install) QEMU
-        id: qemu-install
+        id: setup-qemu
         if: ${{ env.qemu_install == 'true' }}
         uses: docker/setup-qemu-action@master
         # with:
