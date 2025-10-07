@@ -176,7 +176,7 @@ jobs:
         run: |
           echo "${{ env.custom_env }}" | tr '${{ env.flag_split }}' '\n' | tee -a $GITHUB_ENV
 
-      - name: Initialization environment
+      - name: (Apt) install packages - OpenWrt
         id: apt-openwrt
         uses: Grinch27/github-actions/.github/actions/apt-openwrt@main
 
@@ -259,7 +259,7 @@ jobs:
         # with:
         #   platforms: ${{ env.arch_branch }}
 
-      - name: Create simulated physical disk
+      - name: (Setup) disk workspace
         id: disk
         uses: Grinch27/github-actions/.github/actions/setup-disk@main
         with:
@@ -267,7 +267,7 @@ jobs:
           root_num: 4
           mnt_num: 1
 
-      - name: (Check) environment
+      - name: (Check) toolchain
         id: check-toolchain
         uses: Grinch27/github-actions/.github/actions/check-toolchain@main
 
