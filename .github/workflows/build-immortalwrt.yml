@@ -71,6 +71,9 @@ on:
 
 run-name: Openwrt - ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
 
+env:
+  repo_actions: "Grinch27/github-actions/.github/actions"
+
 jobs:
   build:
     name: Openwrt - ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
@@ -152,7 +155,7 @@ jobs:
             "Target_Profile"
             "path_build"
             "path_openwrt"
-            "path_output"
+            "path_output"gcc_version
             "path_diy"
             "path_target"
             "diy_config"
@@ -232,7 +235,7 @@ jobs:
             "libtool"
             "libxml2"
             "libxml2-utils"
-            "lld"
+            "lld"Grinch27/github-actions
             "lldb"
             "lz4"
             "lzop"
@@ -271,61 +274,61 @@ jobs:
       # ========== General Environment Setup: Start ==========
       - name: (Purge) Snap
         id: purge-snap
-        uses: Grinch27/github-actions/.github/actions/purge-snap@main
+        uses: ${{ env.repo_actions }}/purge-snap@main
 
       - name: (Clean) Docker Images
         id: clean-docker
-        uses: Grinch27/github-actions/.github/actions/clean-docker_image@main
+        uses: ${{ env.repo_actions }}/clean-docker_image@main
 
       - name: (Clean) Runner
         id: clean-runner
-        uses: Grinch27/github-actions/.github/actions/clean-runner@main
+        uses: ${{ env.repo_actions }}/clean-runner@main
 
       - name: (Purge) Existing GCC
         id: purge-gcc
         if: ${{ env.gcc_purge == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/purge-gcc@main
+        uses: ${{ env.repo_actions }}/purge-gcc@main
 
       - name: (Install) GCC - ${{ env.gcc_version }}
         id: setup-gcc
         if: ${{ env.gcc_install == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/setup-gcc@main
+        uses: ${{ env.repo_actions }}/setup-gcc@main
 
       - name: (Switch) Installed GCC - ${{ env.gcc_version }}
         id: switch-gcc
         if: ${{ env.gcc_switch == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/switch-gcc@main
+        uses: ${{ env.repo_actions }}/switch-gcc@main
         with:
           gcc_version: ${{ env.gcc_version }}
 
       - name: (Purge) Existing Clang
         id: purge-clang
         if: ${{ env.clang_purge == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/purge-clang@main
+        uses: ${{ env.repo_actions }}/purge-clang@main
 
       - name: (Install) Clang - ${{ env.clang_version }}
         id: setup-clang
         if: ${{ env.clang_install == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/setup-clang@main
+        uses: ${{ env.repo_actions }}/setup-clang@main
 
       - name: (Switch) Installed Clang - ${{ env.clang_version }}
         id: switch-clang
         if: ${{ env.clang_switch == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/switch-clang@main
+        uses: ${{ env.repo_actions }}/switch-clang@main
         with:
           clang_version: ${{ env.clang_version }}
 
       - name: (Switch) AArch64 Cross-Compiler - ${{ env.gcc_version }}
         id: switch-gcc_aarch64
         if: ${{ inputs.Target_System == 'MediaTek_Ralink_ARM' }}
-        uses: Grinch27/github-actions/.github/actions/switch-gcc_aarch64@main
+        uses: ${{ env.repo_actions }}/switch-gcc_aarch64@main
         with:
           gcc_version: ${{ env.gcc_version }}
 
       - name: (Purge) JDK
         id: purge-jdk
         if: ${{ env.jdk_purge == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/purge-jdk@main
+        uses: ${{ env.repo_actions }}/purge-jdk@main
 
       - name: (Install) JDK - ${{ env.jdk_version }}
         id: setup-jdk
@@ -338,7 +341,7 @@ jobs:
       - name: (Install) Docker
         id: setup-docker
         if: ${{ env.docker_install == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/setup-docker@main
+        uses: ${{ env.repo_actions }}/setup-docker@main
 
       - name: (Install) QEMU
         id: setup-qemu
@@ -349,7 +352,7 @@ jobs:
 
       - name: Create simulated physical disk
         id: disk
-        uses: Grinch27/github-actions/.github/actions/setup-disk@main
+        uses: ${{ env.repo_actions }}/setup-disk@main
         with:
           path_build: ${{ env.path_build }}
           root_num: 4
