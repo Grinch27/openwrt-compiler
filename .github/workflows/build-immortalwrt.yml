@@ -271,7 +271,7 @@ jobs:
       # ========== General Environment Setup: Start ==========
       - name: (Purge) Snap
         id: clean-snap
-        uses: Grinch27/github-actions/.github/actions/clean-snap@main
+        uses: Grinch27/github-actions/.github/actions/purge-snap@main
 
       - name: (Clean) Docker Images
         id: docker-clean
@@ -564,7 +564,7 @@ jobs:
       - name: (Purge) JDK
         id: purge-jdk
         if: ${{ env.jdk_purge == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/clean-jdk@main
+        uses: Grinch27/github-actions/.github/actions/purge-jdk@main
 
       - name: (Install) JDK - ${{ env.jdk_version }}
         id: jdk-install
