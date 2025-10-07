@@ -198,7 +198,7 @@ jobs:
         if: ${{ env.gcc_purge == 'true' }}
         uses: Grinch27/github-actions/.github/actions/purge-gcc@main
 
-      - name: (Install) GCC - ${{ env.gcc_version }}
+      - name: (Setup) GCC - ${{ env.gcc_version }}
         id: setup-gcc
         if: ${{ env.gcc_install == 'true' }}
         uses: Grinch27/github-actions/.github/actions/setup-gcc@main
@@ -215,7 +215,7 @@ jobs:
         if: ${{ env.clang_purge == 'true' }}
         uses: Grinch27/github-actions/.github/actions/purge-clang@main
 
-      - name: (Install) Clang - ${{ env.clang_version }}
+      - name: (Setup) Clang - ${{ env.clang_version }}
         id: setup-clang
         if: ${{ env.clang_install == 'true' }}
         uses: Grinch27/github-actions/.github/actions/setup-clang@main
@@ -239,7 +239,7 @@ jobs:
         if: ${{ env.jdk_purge == 'true' }}
         uses: Grinch27/github-actions/.github/actions/purge-jdk@main
 
-      - name: (Install) JDK - ${{ env.jdk_version }}
+      - name: (Setup) JDK - ${{ env.jdk_version }}
         id: setup-jdk
         if: ${{ env.jdk_install == 'true' }}
         uses: actions/setup-java@main
@@ -247,13 +247,13 @@ jobs:
           distribution: "temurin"
           java-version: ${{ env.jdk_version }}
 
-      - name: (Install) Docker
+      - name: (Setup) Docker
         id: setup-docker
         if: ${{ env.docker_install == 'true' }}
         uses: Grinch27/github-actions/.github/actions/setup-docker@main
 
-      - name: (Install) QEMU
-        id: qemu-install
+      - name: (Setup) QEMU
+        id: setup-qemu
         if: ${{ env.qemu_install == 'true' }}
         uses: docker/setup-qemu-action@master
         # with:
