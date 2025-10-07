@@ -318,14 +318,14 @@ jobs:
           df -Th
 
       - name: (Switch) Installed GCC - ${{ env.gcc_version }}
-        id: gcc-switch
+        id: switch-gcc
         if: ${{ env.gcc_switch == 'true' }}
         uses: Grinch27/github-actions/.github/actions/switch-gcc@main
         with:
           gcc_version: ${{ env.gcc_version }}
 
       - name: (Purge) Existing Clang
-        id: clang-purge
+        id: purge-clang
         if: ${{ env.clang_purge == 'true' }}
         uses: Grinch27/github-actions/.github/actions/purge-clang@main
 
