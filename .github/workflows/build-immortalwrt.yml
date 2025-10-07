@@ -562,7 +562,7 @@ jobs:
           echo "Switched to AArch64 GCC version ${gcc_version}."
 
       - name: (Purge) JDK
-        id: jdk-purge
+        id: purge-jdk
         if: ${{ env.jdk_purge == 'true' }}
         uses: Grinch27/github-actions/.github/actions/clean-jdk@main
 
