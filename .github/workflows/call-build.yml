@@ -43,7 +43,7 @@ jobs:
     uses: ./.github/workflows/build-openwrt.yml
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
       matrix:
         runner_image: ["ubuntu-24.04"]
         openwrt_repo: ["git.openwrt.org/openwrt/openwrt.git"]
