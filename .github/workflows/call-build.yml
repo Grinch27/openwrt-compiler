@@ -5,8 +5,8 @@ run-name: Build Matrix for OpenWrt
 
 on:
   schedule:
-    # 21:00 UTC
-    - cron: "0 21 * * *"
+    # UTC Time
+    - cron: "0 1 * * *"
   repository_dispatch:
   workflow_dispatch:
 
