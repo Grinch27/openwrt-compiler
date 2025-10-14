@@ -59,6 +59,12 @@ jobs:
           - Target_System: "MediaTek_Ralink_MIPS"
             Subtarget: "MT7621"
             Target_Profile: ""
+        exclude:
+          - openwrt_branch: "${{ needs.heads.outputs.latest_branch }}"
+            workflows_inputs:
+              Target_System: "x86"
+              Subtarget: "x86_64"
+              Target_Profile: ""
     with:
       runner_image: ${{ matrix.runner_image }}
       OpenWrt_Repository: ${{ matrix.openwrt_repo }}
