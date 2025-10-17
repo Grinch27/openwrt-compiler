@@ -181,83 +181,115 @@ jobs:
         uses: Grinch27/github-actions/.github/actions/apt-openwrt@main
 
       # ========== General Environment Setup: Start ==========
-      - name: (Purge) Snap
-        id: purge-snap
-        uses: Grinch27/github-actions/.github/actions/purge-snap@main
+      - name: (Env) GCC Cross-Compiler
+        id: env-gcc_cross
+        run: |
+          echo -e "Current working directory: $(pwd)"
 
-      - name: (Clean) Docker Images
-        id: clean-docker
-        uses: Grinch27/github-actions/.github/actions/clean-docker_image@main
+          if [[ "${{ inputs.Target_System }}" == "MediaTek_Ralink_ARM" ]]; then
+            echo "gcc_aarch64=true" | tee -a $GITHUB_ENV
+          else
+            echo "gcc_aarch64=false" | tee -a $GITHUB_ENV
+          fi
 
-      - name: (Clean) Runner
-        id: clean-runner
-        uses: Grinch27/github-actions/.github/actions/clean-runner@main
+          echo "gcc_cross: ${{ env.gcc_aarch64 }}"
 
-      - name: (Purge) Existing GCC
-        id: purge-gcc
-        if: ${{ env.gcc_purge == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/purge-gcc@main
-
-      - name: (Setup) GCC - ${{ env.gcc_version }}
-        id: setup-gcc
-        if: ${{ env.gcc_install == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/setup-gcc@main
-
-      - name: (Switch) Installed GCC - ${{ env.gcc_version }}
-        id: switch-gcc
-        if: ${{ env.gcc_switch == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/switch-gcc@main
+      - name: (Env) Environment for OpenWrt
+        id: env-openwrt
+        uses: Grinch27/github-actions/.github/actions/env-openwrt@main
         with:
           gcc_version: ${{ env.gcc_version }}
-
-      - name: (Purge) Existing Clang
-        id: purge-clang
-        if: ${{ env.clang_purge == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/purge-clang@main
-
-      - name: (Setup) Clang - ${{ env.clang_version }}
-        id: setup-clang
-        if: ${{ env.clang_install == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/setup-clang@main
-
-      - name: (Switch) Installed Clang - ${{ env.clang_version }}
-        id: switch-clang
-        if: ${{ env.clang_switch == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/switch-clang@main
-        with:
+          gcc_aarch64: ${{ env.gcc_aarch64 }}
+          clang_purge: ${{ env.clang_purge }}
+          clang_install: ${{ env.clang_install }}
+          clang_switch: ${{ env.clang_switch }}
           clang_version: ${{ env.clang_version }}
+          jdk_purge: ${{ env.jdk_purge }}
+          jdk_install: ${{ env.jdk_install }}
+          jdk_switch: ${{ env.jdk_switch }}
+          jdk_version: ${{ env.jdk_version }}
+          docker_install: ${{ env.docker_install }}
+          qemu_install: ${{ env.qemu_install }}
 
-      - name: (Switch) AArch64 Cross-Compiler - ${{ env.gcc_version }}
-        id: switch-gcc_aarch64
-        if: ${{ inputs.Target_System == 'MediaTek_Ralink_ARM' }}
-        uses: Grinch27/github-actions/.github/actions/switch-gcc_aarch64@main
-        with:
-          gcc_version: ${{ env.gcc_version }}
+      # - name: (Clean) Docker Images
+      #   id: clean-docker
+      #   uses: Grinch27/github-actions/.github/actions/clean-docker_image@main
 
-      - name: (Purge) JDK
-        id: purge-jdk
-        if: ${{ env.jdk_purge == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/purge-jdk@main
+      # - name: (Clean) Runner
+      #   id: clean-runner
+      #   uses: Grinch27/github-actions/.github/actions/clean-runner@main
 
-      - name: (Setup) JDK - ${{ env.jdk_version }}
-        id: setup-jdk
-        if: ${{ env.jdk_install == 'true' }}
-        uses: actions/setup-java@main
-        with:
-          distribution: "temurin"
-          java-version: ${{ env.jdk_version }}
+      # - name: (Purge) Existing GCC
+      #   id: purge-gcc
+      #   if: ${{ env.gcc_purge == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/purge-gcc@main
 
-      - name: (Setup) Docker
-        id: setup-docker
-        if: ${{ env.docker_install == 'true' }}
-        uses: Grinch27/github-actions/.github/actions/setup-docker@main
+      # - name: (Setup) GCC - ${{ env.gcc_version }}
+      #   id: setup-gcc
+      #   if: ${{ env.gcc_install == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/setup-gcc@main
 
-      - name: (Setup) QEMU
-        id: setup-qemu
-        if: ${{ env.qemu_install == 'true' }}
-        uses: docker/setup-qemu-action@master
-        # with:
-        #   platforms: ${{ env.arch_branch }}
+      # - name: (Switch) Installed GCC - ${{ env.gcc_version }}
+      #   id: switch-gcc
+      #   if: ${{ env.gcc_switch == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/switch-gcc@main
+      #   with:
+      #     gcc_version: ${{ env.gcc_version }}
+
+      # - name: (Purge) Existing Clang
+      #   id: purge-clang
+      #   if: ${{ env.clang_purge == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/purge-clang@main
+
+      # - name: (Setup) Clang - ${{ env.clang_version }}
+      #   id: setup-clang
+      #   if: ${{ env.clang_install == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/setup-clang@main
+
+      # - name: (Switch) Installed Clang - ${{ env.clang_version }}
+      #   id: switch-clang
+      #   if: ${{ env.clang_switch == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/switch-clang@main
+      #   with:
+      #     clang_version: ${{ env.clang_version }}
+
+      # - name: (Switch) AArch64 Cross-Compiler - ${{ env.gcc_version }}
+      #   id: switch-gcc_aarch64
+      #   if: ${{ inputs.Target_System == 'MediaTek_Ralink_ARM' }}
+      #   uses: Grinch27/github-actions/.github/actions/switch-gcc_aarch64@main
+      #   with:
+      #     gcc_version: ${{ env.gcc_version }}
+
+      # - name: (Purge) JDK
+      #   id: purge-jdk
+      #   if: ${{ env.jdk_purge == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/purge-jdk@main
+
+      # - name: (Setup) JDK - ${{ env.jdk_version }}
+      #   id: setup-jdk
+      #   if: ${{ env.jdk_install == 'true' }}
+      #   uses: actions/setup-java@main
+      #   with:
+      #     distribution: "temurin"
+      #     java-version: ${{ env.jdk_version }}
+
+      # - name: (Setup) Docker
+      #   id: setup-docker
+      #   if: ${{ env.docker_install == 'true' }}
+      #   uses: Grinch27/github-actions/.github/actions/setup-docker@main
+
+      # - name: (Setup) QEMU
+      #   id: setup-qemu
+      #   if: ${{ env.qemu_install == 'true' }}
+      #   uses: docker/setup-qemu-action@master
+      #   # with:
+      #   #   platforms: ${{ env.arch_branch }}
+
+      # - name: (Check) toolchain
+      #   id: check-toolchain
+      #   uses: Grinch27/github-actions/.github/actions/check-toolchain@main
+
+      # ========== General Environment Setup: End ==========
 
       - name: (Setup) disk workspace
         id: disk
@@ -266,12 +298,6 @@ jobs:
           path_build: ${{ env.path_build }}
           root_num: 4
           mnt_num: 1
-
-      - name: (Check) toolchain
-        id: check-toolchain
-        uses: Grinch27/github-actions/.github/actions/check-toolchain@main
-
-      # ========== General Environment Setup: End ==========
 
       - name: (Clone) OpenWrt
         id: clonesys
