@@ -474,14 +474,6 @@ jobs:
           ls -lhR ./packages
           rm -rf ./packages
 
-          # for file in *.bin
-          # do
-          #   if [[ ! -d "${file}" ]]
-          #   then
-          #     sha256sum "${file}" > "${file}.sha"
-          #   fi
-          # done
-
       - name: "[release.md] Record release.md"
         id: record
         working-directory: ${{ env.path_openwrt }}
