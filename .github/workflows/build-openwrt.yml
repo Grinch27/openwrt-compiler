@@ -195,8 +195,8 @@ jobs:
           echo "gcc_cross: ${{ env.gcc_aarch64 }}"
 
       - name: (Env) Environment for OpenWrt
-        id: env-openwrt
-        uses: Grinch27/github-actions/.github/actions/env-openwrt@main
+        id: env-toolchain
+        uses: Grinch27/github-actions/.github/actions/env-toolchain@main
         with:
           # ----- gcc -----
           gcc_purge: ${{ env.gcc_purge }}
