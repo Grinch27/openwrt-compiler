@@ -198,16 +198,23 @@ jobs:
         id: env-openwrt
         uses: Grinch27/github-actions/.github/actions/env-openwrt@main
         with:
+          # ----- gcc -----
+          gcc_purge: ${{ env.gcc_purge }}
+          gcc_install: ${{ env.gcc_install }}
+          gcc_switch: ${{ env.gcc_switch }}
           gcc_version: ${{ env.gcc_version }}
           gcc_aarch64: ${{ env.gcc_aarch64 }}
+          # ----- clang -----
           clang_purge: ${{ env.clang_purge }}
           clang_install: ${{ env.clang_install }}
           clang_switch: ${{ env.clang_switch }}
           clang_version: ${{ env.clang_version }}
+          # ----- jdk -----
           jdk_purge: ${{ env.jdk_purge }}
           jdk_install: ${{ env.jdk_install }}
           jdk_switch: ${{ env.jdk_switch }}
           jdk_version: ${{ env.jdk_version }}
+          # ----- docker -----
           docker_install: ${{ env.docker_install }}
           qemu_install: ${{ env.qemu_install }}
 
