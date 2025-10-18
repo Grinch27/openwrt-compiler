@@ -85,10 +85,10 @@ sudo apt update
 sudo apt install -y tftpd-hpa
 
 # 创建TFTP目录
-mkdir -p /srv/tftp
-chmod 777 /srv/tftp
+sudo mkdir -p /srv/tftp
+sudo chmod 777 /srv/tftp
 # 编辑TFTP配置文件
-sudo nano /etc/default/tftpd-hpa
+sudo vi /etc/default/tftpd-hpa
 # 将配置文件内容修改为：
 TFTP_USERNAME="tftp"
 TFTP_DIRECTORY="/srv/tftp"
@@ -224,6 +224,12 @@ rm -f /sys/fs/pstore/*
 # 更新系统（不保留配置）
 sysupgrade -n /tmp/sysupgrade.itb
 reboot
+
+# 安装TFTP服务
+# 更新软件包列表
+sudo apt update
+# 安装tftpd-hpa服务器
+sudo apt install -y tftpd-hpa
 
 # 重启TFTP服务
 sudo systemctl restart tftpd-hpa
