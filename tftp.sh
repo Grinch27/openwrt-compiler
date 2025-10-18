@@ -186,21 +186,34 @@ ssh root@192.168.10.1 "reboot"
 # mtd8: 00c00000 00020000 "bvasPlugin"
 # mtd9: 05680000 00020000 "ubi"
 
-
+cd ./
 # 传输preloader.bin
-cat /home/user/下载/openwrt/official/openwrt-mediatek-filogic-nokia_ea0326gmp-preloader.bin | ssh root@192.168.1.1 "cat > /tmp/preloader.bin"
+cat ./openwrt-mediatek-filogic-nokia_ea0326gmp-preloader.bin | ssh root@192.168.1.1 "cat > /tmp/preloader.bin"
 # 传输bl31-uboot.fip
-cat /home/user/下载/openwrt/official/openwrt-mediatek-filogic-nokia_ea0326gmp-bl31-uboot.fip | ssh root@192.168.1.1 "cat > /tmp/bl31-uboot.fip"
+cat ./openwrt-mediatek-filogic-nokia_ea0326gmp-bl31-uboot.fip | ssh root@192.168.1.1 "cat > /tmp/bl31-uboot.fip"
 # 传输initramfs-recovery.itb（可选）
-cat /home/user/下载/openwrt/official/openwrt-mediatek-filogic-nokia_ea0326gmp-initramfs-recovery.itb | ssh root@192.168.1.1 "cat > /tmp/initramfs-recovery.itb"
+cat ./openwrt-mediatek-filogic-nokia_ea0326gmp-initramfs-recovery.itb | ssh root@192.168.1.1 "cat > /tmp/initramfs-recovery.itb"
 # 传输sysupgrade.itb
-cat /home/user/下载/openwrt/official/openwrt-mediatek-filogic-nokia_ea0326gmp-squashfs-sysupgrade.itb | ssh root@192.168.1.1 "cat > /tmp/sysupgrade.itb"
+cat ./openwrt-mediatek-filogic-nokia_ea0326gmp-squashfs-sysupgrade.itb | ssh root@192.168.1.1 "cat > /tmp/sysupgrade.itb"
 
 
 
 # 登录路由器
 ssh-keygen -f '/home/user/.ssh/known_hosts' -R '192.168.1.1'
 ssh root@192.168.1.1
+
+
+# root@ImmortalWrt:~# cat /proc/mtd
+# dev:    size   erasesize  name
+# mtd0: 08000000 00020000 "spi0.0"
+# mtd1: 00100000 00020000 "BL2"
+# mtd2: 00080000 00020000 "u-boot-env"
+# mtd3: 00200000 00020000 "Factory"
+# mtd4: 00200000 00020000 "FIP"
+# mtd5: 00200000 00020000 "Config"
+# mtd6: 00200000 00020000 "Config2"
+# mtd7: 06e00000 00020000 "ubi"
+
 
 # 以下命令在路由器上执行
 # 加载kmod-mtd-rw模块
