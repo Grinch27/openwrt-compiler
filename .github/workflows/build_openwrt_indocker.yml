@@ -1,0 +1,557 @@
+name: Build OpenWrt
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      OpenWrt_Repository:
+        description: "OpenWrt Repository"
+        required: true
+        default: "git.openwrt.org/openwrt/openwrt.git"
+        type: string
+      OpenWrt_Branch:
+        description: "OpenWrt Branch"
+        required: true
+        default: "main"
+        type: string
+      Target_System:
+        description: "Target System"
+        required: true
+        default: "x86"
+        type: choice
+        options:
+          - "x86"
+          - "MediaTek_Ralink_ARM"
+          - "MediaTek_Ralink_MIPS"
+      Subtarget:
+        description: "Subtarget"
+        required: true
+        default: "x86_64"
+        type: choice
+        options:
+          - "x86_64"
+          - "MT798x"
+          - "MT7620"
+      Target_Profile:
+        description: "Target Profile"
+        required: false
+        default: ""
+        type: string
+      runner_image:
+        description: "Runner Image"
+        type: string
+        required: false
+        default: "ubuntu-latest"
+  workflow_call:
+    inputs:
+      OpenWrt_Repository:
+        description: "OpenWrt Repository URL"
+        required: true
+        type: string
+      OpenWrt_Branch:
+        description: "OpenWrt Branch Name"
+        required: true
+        type: string
+      Target_System:
+        description: "Target System"
+        required: true
+        type: string
+      Subtarget:
+        description: "Subtarget"
+        required: true
+        type: string
+      Target_Profile:
+        description: "Target Profile"
+        required: false
+        type: string
+      runner_image:
+        description: "Runner Image"
+        required: false
+        type: string
+
+run-name: ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+
+jobs:
+  build:
+    name: ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+    runs-on: ${{ inputs.runner_image || 'ubuntu-latest' }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # ----- gcc -----
+      gcc_purge: true
+      gcc_install: true
+      gcc_switch: true
+      gcc_version: 14
+      # ----- clang -----
+      clang_purge: true
+      # clang_install: true
+      # clang_switch: true
+      clang_version: 19
+      # ----- jdk -----
+      # jdk_purge: true
+      # jdk_install: true
+      # jdk_switch: true
+      # jdk_version: 21
+      # ----- docker -----
+      docker_install: false
+      qemu_install: false
+    steps:
+      - name: (Var) environment variable setup
+        id: var-setup
+        working-directory: /
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          # continue_on_error="${{ inputs.continue_on_error || 'false' }}"
+
+          # ========== Openwrt make menuconfig ==========
+          Target_System="${{ inputs.Target_System }}"
+          Subtarget="${{ inputs.Subtarget }}"
+          Target_Profile="${{ inputs.Target_Profile }}"
+          if [[ -z "$Target_Profile" ]]; then
+            Target_Profile="$Subtarget"
+          fi
+
+          # ========== Set OpenWrt repo branch ==========
+          repo_openwrt="https://${{ inputs.OpenWrt_Repository }}"
+          repo_openwrt_branch="${{ inputs.OpenWrt_Branch }}"
+          repo_diy="https://github.com/${{ github.repository }}"
+          repo_diy_owner="${{ github.repository_owner }}"
+
+          # Simplified path construction
+          dir_build="build"
+          dir_openwrt="openwrt"
+          dir_diy="DIY"
+          dir_output="output"
+          dir_target="${Target_System}/${Subtarget}/${Target_Profile}"
+
+          path_build="/${dir_build}"
+          path_openwrt="${path_build}/${dir_openwrt}"
+          path_diy="${path_build}/${dir_diy}"
+          path_output="${path_build}/${dir_output}"
+          path_target="${path_diy}/${dir_target}"
+
+          # DIY Files
+          diy_config="${path_target}/${Target_Profile}.config"
+          diy_feeds="${path_target}/feeds.conf.default"
+          diy_p1_sh="${path_target}/diy-part1.sh"
+          diy_p2_sh="${path_target}/diy-part2.sh"
+          diy_files="${path_target}/files"
+          diy_patches="${path_target}/patches"
+          release_md="${path_target}/release.md"
+
+          # ========== GITHUB_ENV ==========
+          env_vars=(
+            # "continue_on_error"
+            "repo_openwrt"
+            "repo_openwrt_branch"
+            "repo_diy"
+            "repo_diy_owner"
+            "Target_System"
+            "Subtarget"
+            "Target_Profile"
+            "path_build"
+            "path_openwrt"
+            "path_output"
+            "path_diy"
+            "path_target"
+            "diy_config"
+            "diy_feeds"
+            "diy_p1_sh"
+            "diy_p2_sh"
+            "diy_files"
+            "diy_patches"
+            "release_md"
+          )
+          for var in "${env_vars[@]}"; do
+            echo "${var}=${!var}" | tee -a $GITHUB_ENV
+          done
+
+      - name: (Var) Custom Environment Variables Load
+        id: var-custom
+        if: ${{ env.custom_env != '' }}
+        env:
+          flag_split: ";"
+        working-directory: /
+        run: |
+          echo "${{ env.custom_env }}" | tr '${{ env.flag_split }}' '\n' | tee -a $GITHUB_ENV
+
+      - name: (Apt) install packages - OpenWrt
+        id: apt-openwrt
+        uses: Grinch27/github-actions/.github/actions/apt-openwrt@main
+
+      # ========== General Environment Setup: Start ==========
+      - name: (Env) GCC Cross-Compiler
+        id: env-gcc_cross
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          if [[ "${{ inputs.Target_System }}" == "MediaTek_Ralink_ARM" ]]; then
+            echo "gcc_aarch64=true" | tee -a $GITHUB_ENV
+          else
+            echo "gcc_aarch64=false" | tee -a $GITHUB_ENV
+          fi
+
+          echo "gcc_cross: ${{ env.gcc_aarch64 }}"
+
+      - name: (Env) Environment for OpenWrt
+        id: env-toolchain
+        uses: Grinch27/github-actions/.github/actions/env-toolchain@main
+        with:
+          # ----- gcc -----
+          gcc_purge: ${{ env.gcc_purge }}
+          gcc_install: ${{ env.gcc_install }}
+          gcc_switch: ${{ env.gcc_switch }}
+          gcc_version: ${{ env.gcc_version }}
+          gcc_aarch64: ${{ env.gcc_aarch64 }}
+          # ----- clang -----
+          clang_purge: ${{ env.clang_purge }}
+          clang_install: ${{ env.clang_install }}
+          clang_switch: ${{ env.clang_switch }}
+          clang_version: ${{ env.clang_version }}
+          # ----- jdk -----
+          jdk_purge: ${{ env.jdk_purge }}
+          jdk_install: ${{ env.jdk_install }}
+          jdk_switch: ${{ env.jdk_switch }}
+          jdk_version: ${{ env.jdk_version }}
+          # ----- docker -----
+          docker_install: ${{ env.docker_install }}
+          qemu_install: ${{ env.qemu_install }}
+
+      # ========== General Environment Setup: End ==========
+
+      - name: (Disk) disk workspace
+        id: disk
+        uses: Grinch27/github-actions/.github/actions/setup-disk@main
+        with:
+          path_build: ${{ env.path_build }}
+          root_num: 4
+          mnt_num: 1
+
+      - name: (Clone) OpenWrt
+        id: clonesys
+        # if: ${{ steps.disk.outputs.status }} == 'success' && !cancelled()
+        # if: ${{ steps.disk.outcome }} == 'success' && !cancelled()
+        if: ${{ steps.disk.conclusion }} == 'success' && !cancelled()
+        working-directory: /
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          # --depth=1
+          git clone ${repo_openwrt} ${path_openwrt} --single-branch --branch=${repo_openwrt_branch}
+          echo -e "repo_openwrt: [ ${repo_openwrt} ]\nBRANCH: [ ${repo_openwrt_branch} ]"
+
+          df -hT ${PWD}
+
+      - name: (Clone) DIY
+        id: clonediy
+        if: ${{ steps.disk.conclusion }} == 'success' && !cancelled()
+        working-directory: /
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          git clone ${repo_diy} ${path_diy} --single-branch --depth=1 --branch=main
+          echo -e "repo_diy: [ ${repo_diy} ]\nBRANCH: [ main ]"
+
+          df -hT ${PWD}
+
+      - name: (Check) path
+        id: check-path
+        working-directory: /
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          df -Th
+
+          echo -e "# ========== Path =========="
+          declare -a paths=("${{ env.path_build }}" "${{ env.path_openwrt }}" "${{ env.path_diy }}" "${{ env.path_output }}" "${{ env.path_target }}" "${{ env.diy_patches }}")
+          for path in "${paths[@]}"
+          do
+            echo "Checking and preparing $path"
+            if [ ! -d "$path" ]; then
+              echo "$path does not exist, creating..."
+              mkdir -p "$path"
+            fi
+            echo "Listing contents of $path"
+            ls -lh "$path"
+          done
+
+      - name: (feeds.conf.default) Load custom feeds
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          if [[ -e "${diy_feeds}" && ! "${diy_feeds}" -ef "${path_openwrt}/feeds.conf.default" ]]; then
+            echo -e "diy_feeds: ${diy_feeds}"
+            cp -f ${diy_feeds} ${path_openwrt}/feeds.conf.default
+          fi
+
+      - name: (DIY_P1.sh) after load feeds, before update feeds
+        working-directory: ${{ env.path_openwrt }}
+        env:
+          file_script: ${{ env.diy_p1_sh }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          if [[ -e "${file_script}" ]]; then
+            echo -e "file_script: ${file_script}"
+            chmod +x ${file_script}
+            bash ${file_script}
+            cat ${file_script}
+          fi
+
+      - name: Update feeds
+        id: feeds-update
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          cat ./feeds.conf.default
+          ./scripts/feeds update -a
+
+      - name: (Install) feeds
+        id: feeds-install
+        working-directory: ${{ env.path_openwrt }}
+        if: ${{ steps.feeds-update.conclusion }} == 'success' && !cancelled()
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          ./scripts/feeds install -a
+
+      - name: (/files) Load custom files
+        id: files
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          mkdir -p ./files/etc/config
+          if [[ -e "${diy_files}" ]]; then
+              cp -rf ${diy_files}/* ./files/
+          fi
+
+      - name: (.config) Load custom configuration
+        id: config-custom
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          if [[ -e "${diy_config}" && ! "${diy_config}" -ef "${path_openwrt}/.config" ]]; then
+            echo -e "diy_config: ${diy_config}"
+            cp -f ${diy_config} ${path_openwrt}/.config
+          else
+            echo ".config file not found"
+          fi
+
+          yes "" | make oldconfig
+          cat ./.config
+
+      - name: (patches) Apply patches
+        id: patch
+        if: ${{ 'true' == 'false' }} # disable
+        env:
+          diy_patches: ${{ env.diy_patches }}
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          printf "Current working directory: %s\n" "$(pwd)"
+
+          if [ -d "${diy_patches}" ]; then
+            find "${diy_patches}" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "cat '%' | patch -d './' -B --merge -p1 --forward"
+          fi
+
+      - name: (DIY_P2.sh) after install feeds, before download package
+        working-directory: ${{ env.path_openwrt }}
+        env:
+          file_script: ${{ env.diy_p2_sh }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          if [[ -e "${file_script}" ]]; then
+            echo -e "file_script: ${file_script}"
+            chmod +x ${file_script}
+            bash ${file_script}
+            cat ${file_script}
+          fi
+
+      - name: (.config) Update config
+        id: config-update
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          echo "make oldconfig: update .config file..."
+          yes "" | make oldconfig
+          cat ./.config
+
+      - name: Clean & Rebuild host tools
+        id: make-clean
+        # if: ${{ 'true' == 'false' }} # disable
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          make dirclean
+          make tools/install -j$(($(nproc) + 1))
+
+      - name: Download package
+        id: package
+        working-directory: ${{ env.path_openwrt }}
+        if: ${{ steps.feeds-install.conclusion }} == 'success' && !cancelled()
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          echo -e "make download: $(($(nproc) + 1)) thread"
+          make download -j$(($(nproc) + 1))
+          # find dl -size -1024c -exec ls -l {} \;
+          # find dl -size -1024c -exec rm -f {} \;
+
+      - name: Test Before Compile
+        id: make-test
+        if: ${{ 'true' == 'false' }} # disable
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          # grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
+
+      - name: Compile the OpenWrt
+        id: compile
+        working-directory: ${{ env.path_openwrt }}
+        if: ${{ steps.package.conclusion }} == 'success' && !cancelled()
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          echo -e "$(($(nproc) + 1)) thread compile"
+          # if [ "${{ env.continue_on_error }}" == "true" ]; then
+          #   make -j$(($(nproc) + 1)) V=s -k
+          # else
+          #   make -j$(($(nproc) + 1)) V=s
+          # fi
+          make -j$(($(nproc) + 1)) V=s
+
+      - name: Copy to output
+        id: output
+        working-directory: /
+        env:
+          PATH_TARGET: ${{ env.path_openwrt }}/bin/targets/*/*/*
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          [[ -e "${path_output}" ]] || mkdir -p ${path_output}
+
+          echo "复制 ${PATH_TARGET} 到: ${path_output}/"
+          cp -rf ${PATH_TARGET} ${path_output}/
+          ls -lhR ${path_output}/
+
+          echo "复制 ${path_openwrt}/.config 到: ${path_output}/config"
+          cp -f ${path_openwrt}/.config ${path_output}/config
+
+          echo -e "timestamp=$(date +"%y%mw%V")" >> ${GITHUB_OUTPUT}
+
+      - name: Version of the kernel
+        id: version-kernel
+        working-directory: ${{ env.path_output }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          # 查找 packages 目录中的 kernel 文件
+          Package_Kernel=$(find packages -name 'kernel[-_]*.*pk' | head -n 1)
+          echo "Kernel file: ${Package_Kernel}"
+
+          if [ -n "$Package_Kernel" ]; then
+            # 提取文件名
+            Filename_Kernel=$(basename "${Package_Kernel}")
+            echo "Filename: ${Filename_Kernel}"
+            
+            # 使用正则表达式匹配 'kernel-' 或 'kernel_' 后面的 x.y.z 版本号
+            # if [[ "${Filename_Kernel}" =~ kernel[-_](\d+\.\d+\.\d+) ]]; then
+            if [[ "${Filename_Kernel}" =~ kernel[-_]([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+              Version_Kernel="${BASH_REMATCH[1]}"
+
+              echo "Kernel version: ${Version_Kernel}"
+              echo "version=${Version_Kernel}" | tee -a $GITHUB_OUTPUT
+            else
+              echo "Kernel version pattern not found in filename."
+            fi
+          else
+            echo "No kernel file found."
+          fi
+
+      - name: (Clean) output
+        id: clean-output
+        working-directory: ${{ env.path_output }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          # handle Dir packages
+          ls -lhR ./packages
+          rm -rf ./packages
+
+      - name: "[release.md] Record release.md"
+        id: record
+        working-directory: ${{ env.path_openwrt }}
+        run: |
+          printf "Current working directory: %s\n" "$(pwd)"
+
+          release_md_dir=$(dirname ${release_md})
+          mkdir -p ${release_md_dir}
+          : > ${release_md}
+
+          record_to_markdown() {
+            local title="$1"
+            local content="$2"
+            local code_block="${3:-}"
+            local format="\n### %s\n%s\n"
+
+            if [[ -n "${code_block}" ]]; then
+              format="\n### %s\n\n<details>\n<summary>%s</summary>\n\n\`\`\`%s\n%s\n\`\`\`\n\n</details>\n"
+              printf "${format}" "${title}" "${title}" "${code_block}" "${content}" | tee -a ${release_md}
+            else
+              printf "${format}" "${title}" "${content}" | tee -a ${release_md}
+            fi
+          }
+
+          # 记录Clone源码的分支和构建者、编译完成时间
+          # record_to_markdown "Build ${Target_Profile} - by ${repo_diy_owner}" ""
+          # record_to_markdown "OpenWrt branch" "- [${openwrt_branch};${repo_openwrt_branch}](${repo_openwrt}/tree/${repo_openwrt_branch})"
+          record_to_markdown "Target" "- [x] ${Target_System} - ${Subtarget} - ${Target_Profile}"
+          record_to_markdown "Timestamp" "- [x] $(date +"%Y-%m-%d %H:%M:%S %z")"
+          record_to_markdown "Repository" "- [x] ${repo_openwrt}"
+          record_to_markdown "Repository Branch" "- [x] ${repo_openwrt_branch}"
+
+          declare -A file_records=(
+            ["${diy_feeds}"]="feeds setting|bash"
+            ["${diy_p1_sh}"]="$(basename "${diy_p1_sh}")|bash"
+            ["${diy_p2_sh}"]="$(basename "${diy_p2_sh}")|bash"
+            ["${diy_config}"]="pre-config|makefile"
+            ["${{ env.path_openwrt }}/.config"]=".config|makefile"
+          )
+          for file_path in "${!file_records[@]}"; do
+            if [[ -f $file_path ]]; then
+              IFS='|' read -r section_title file_type <<< "${file_records[$file_path]}"
+              # 合并grep命令，一次性移除注释和空行
+              code_content=$(grep -E '^[^#]' "$file_path" | grep -Ev '^\s*$' | sed 's/\s\+$//g')
+              record_to_markdown "$section_title" "$code_content" "$file_type"
+            fi
+          done
+
+          # # 读取profiles.json
+          # profiles_json_path="${{ env.path_output }}/profiles.json"
+          # profiles_json_content=$(jq '.' "$profiles_json_path")
+          # # record_to_markdown "Profiles" "$profiles_json_content" "json"
+
+          cat ${release_md}
+
+      - name: Upload OpenWrt to Release
+        id: release
+        uses: ncipollo/release-action@main
+        if: ${{ steps.output.conclusion }} == 'success' && !cancelled()
+        env:
+          timestamp: ${{ steps.output.outputs.timestamp }}
+          version_kernel: ${{ steps.version-kernel.outputs.version }}
+        with:
+          name: "${{ inputs.OpenWrt_Branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
+          tag: "${{ inputs.OpenWrt_Branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
+          artifacts: "${{ env.path_output }}/*"
+          allowUpdates: true
+          removeArtifacts: false
+          replacesArtifacts: true
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          bodyFile: "${{ env.release_md }}"
+          # body: ""
+
+      - name: Clear workspace
+        id: clearwork
+        if: ${{ 'true' == 'false' }} # disable
+        working-directory: ${{ env.path_build }}
+        run: |
+          # rm -rf $(ls . | grep -v "^output$" | xargs) 2>/dev/null
+          rm -rf ./* 2>/dev/null
+          df -hT ${PWD}
