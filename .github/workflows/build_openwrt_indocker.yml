@@ -1,5 +1,8 @@
 name: Build OpenWrt
 
+permissions:
+  contents: write
+
 on:
   repository_dispatch:
   workflow_dispatch:
@@ -37,6 +40,11 @@ on:
         required: false
         default: ""
         type: string
+      custom_env:
+        description: "key=value;key=value"
+        type: string
+        required: false
+        default: ""
       runner_image:
         description: "Runner Image"
         type: string
@@ -64,6 +72,10 @@ on:
         description: "Target Profile"
         required: false
         type: string
+      custom_env:
+        description: "key=value;key=value"
+        type: string
+        required: false
       runner_image:
         description: "Runner Image"
         required: false
@@ -71,31 +83,43 @@ on:
 
 run-name: ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
 
+env:
+  custom_env: ${{ inputs.custom_env || '' }}
+
 jobs:
   build:
     name: ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
     runs-on: ${{ inputs.runner_image || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: ubuntu:devel
     env:
       DEBIAN_FRONTEND: noninteractive
       # ----- gcc -----
       gcc_purge: true
       gcc_install: true
-      gcc_switch: true
-      gcc_version: 14
+      # gcc_switch: false
+      # gcc_version: 14
       # ----- clang -----
-      clang_purge: true
+      # clang_purge: true
       # clang_install: true
       # clang_switch: true
-      clang_version: 19
+      # clang_version: 19
       # ----- jdk -----
       # jdk_purge: true
       # jdk_install: true
       # jdk_switch: true
       # jdk_version: 21
       # ----- docker -----
-      docker_install: false
-      qemu_install: false
+      # docker_install: false
+      # qemu_install: false
     steps:
+      - name: Docker Workspace All in One
+        id: docker-workspace
+        uses: Grinch27/github-actions/.github/actions/env-indocker@main
+
       - name: (Var) environment variable setup
         id: var-setup
         working-directory: /
@@ -112,14 +136,19 @@ jobs:
             Target_Profile="$Subtarget"
           fi
 
-          # ========== Set OpenWrt repo branch ==========
-          repo_openwrt="https://${{ inputs.OpenWrt_Repository }}"
+          # ========== Set OpenWrt repo branch (sanitize URL) ==========
+          _repo_in="${{ inputs.OpenWrt_Repository }}"
+          if [[ "${_repo_in}" =~ ^https?:// ]]; then
+            repo_openwrt="${_repo_in}"
+          else
+            repo_openwrt="https://${_repo_in}"
+          fi
           repo_openwrt_branch="${{ inputs.OpenWrt_Branch }}"
           repo_diy="https://github.com/${{ github.repository }}"
           repo_diy_owner="${{ github.repository_owner }}"
 
-          # Simplified path construction
-          dir_build="build"
+          # ===== Align with indocker workspace (/builder) =====
+          dir_build="builder"
           dir_openwrt="openwrt"
           dir_diy="DIY"
           dir_output="output"
@@ -130,6 +159,9 @@ jobs:
           path_diy="${path_build}/${dir_diy}"
           path_output="${path_build}/${dir_output}"
           path_target="${path_diy}/${dir_target}"
+
+          # Ensure base dirs exist early
+          mkdir -p "${path_build}" "${path_openwrt}" "${path_diy}" "${path_output}" "${path_target}"
 
           # DIY Files
           diy_config="${path_target}/${Target_Profile}.config"
@@ -142,7 +174,6 @@ jobs:
 
           # ========== GITHUB_ENV ==========
           env_vars=(
-            # "continue_on_error"
             "repo_openwrt"
             "repo_openwrt_branch"
             "repo_diy"
@@ -164,7 +195,7 @@ jobs:
             "release_md"
           )
           for var in "${env_vars[@]}"; do
-            echo "${var}=${!var}" | tee -a $GITHUB_ENV
+            echo "${var}=${!var}" | tee -a "$GITHUB_ENV"
           done
 
       - name: (Var) Custom Environment Variables Load
@@ -220,40 +251,29 @@ jobs:
 
       # ========== General Environment Setup: End ==========
 
-      - name: (Disk) disk workspace
-        id: disk
-        uses: Grinch27/github-actions/.github/actions/setup-disk@main
-        with:
-          path_build: ${{ env.path_build }}
-          root_num: 4
-          mnt_num: 1
-
       - name: (Clone) OpenWrt
         id: clonesys
-        # if: ${{ steps.disk.outputs.status }} == 'success' && !cancelled()
-        # if: ${{ steps.disk.outcome }} == 'success' && !cancelled()
-        if: ${{ steps.disk.conclusion }} == 'success' && !cancelled()
         working-directory: /
         run: |
           echo -e "Current working directory: $(pwd)"
+          rm -rf "${path_openwrt}"
 
-          # --depth=1
-          git clone ${repo_openwrt} ${path_openwrt} --single-branch --branch=${repo_openwrt_branch}
+          git clone "${repo_openwrt}" "${path_openwrt}" --single-branch --branch="${repo_openwrt_branch}"
           echo -e "repo_openwrt: [ ${repo_openwrt} ]\nBRANCH: [ ${repo_openwrt_branch} ]"
 
-          df -hT ${PWD}
+          df -hT "${PWD}"
 
       - name: (Clone) DIY
         id: clonediy
-        if: ${{ steps.disk.conclusion }} == 'success' && !cancelled()
         working-directory: /
         run: |
           echo -e "Current working directory: $(pwd)"
+          rm -rf "${path_diy}"
 
-          git clone ${repo_diy} ${path_diy} --single-branch --depth=1 --branch=main
+          git clone "${repo_diy}" "${path_diy}" --single-branch --depth=1 --branch=main
           echo -e "repo_diy: [ ${repo_diy} ]\nBRANCH: [ main ]"
 
-          df -hT ${PWD}
+          df -hT "${PWD}"
 
       - name: (Check) path
         id: check-path
@@ -264,14 +284,9 @@ jobs:
 
           echo -e "# ========== Path =========="
           declare -a paths=("${{ env.path_build }}" "${{ env.path_openwrt }}" "${{ env.path_diy }}" "${{ env.path_output }}" "${{ env.path_target }}" "${{ env.diy_patches }}")
-          for path in "${paths[@]}"
-          do
+          for path in "${paths[@]}"; do
             echo "Checking and preparing $path"
-            if [ ! -d "$path" ]; then
-              echo "$path does not exist, creating..."
-              mkdir -p "$path"
-            fi
-            echo "Listing contents of $path"
+            mkdir -p "$path"
             ls -lh "$path"
           done
 
@@ -544,4 +559,3 @@ jobs:
           replacesArtifacts: true
           token: "${{ secrets.GITHUB_TOKEN }}"
           bodyFile: "${{ env.release_md }}"
-          # body: ""
