@@ -106,7 +106,7 @@ jobs:
       gcc_aarch64: true
       # ----- clang -----
       clang_purge: false
-      clang_install: false
+      clang_install: true
       clang_switch: false
       clang_version: ""
       # ----- jdk -----
