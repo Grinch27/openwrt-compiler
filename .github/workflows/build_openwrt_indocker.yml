@@ -175,12 +175,12 @@ jobs:
           DIR_profile="${Target_System}/${Subtarget}/${Target_Profile}"
 
           # DIY Files
-          diy_config="${PATH_target}/${DIR_profile}/${Target_Profile}.config"
-          diy_feeds="${PATH_target}/${DIR_profile}/feeds.conf.default"
-          diy_p1_sh="${PATH_target}/${DIR_profile}/diy-part1.sh"
-          diy_p2_sh="${PATH_target}/${DIR_profile}/diy-part2.sh"
-          diy_files="${PATH_target}/${DIR_profile}/files"
-          PATH_patches="${PATH_target}/${DIR_profile}/patches"
+          diy_config="${PATH_self}/${DIR_profile}/${Target_Profile}.config"
+          diy_feeds="${PATH_self}/${DIR_profile}/feeds.conf.default"
+          diy_p1_sh="${PATH_self}/${DIR_profile}/diy-part1.sh"
+          diy_p2_sh="${PATH_self}/${DIR_profile}/diy-part2.sh"
+          diy_files="${PATH_self}/${DIR_profile}/files"
+          PATH_patches="${PATH_self}/${DIR_profile}/patches"
 
           # ========== GITHUB_ENV ==========
           env_vars=(
