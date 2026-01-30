@@ -211,6 +211,9 @@ jobs:
         run: |
           echo -e "Current working directory: $(pwd)"
 
+          rm -rf ${PATH_target}
+          mkdir -p ${PATH_target}
+
           # Clone target repository: without --depth=1
           git clone ${REPO_target} ${PATH_target} --single-branch --branch=${REPO_target_branch} 
           echo -e "REPO_target: [ ${REPO_target} ]\nBRANCH: [ ${REPO_target_branch} ]"
@@ -228,6 +231,9 @@ jobs:
         working-directory: /
         run: |
           echo -e "Current working directory: $(pwd)"
+
+          rm -rf ${PATH_self}
+          mkdir -p ${PATH_self}
 
           git clone ${REPO_self} ${PATH_self} --single-branch --depth=1 --branch=${REPO_self_branch}
           echo -e "REPO_self: [ ${REPO_self} ]\nBRANCH: [ ${REPO_self_branch} ]"
