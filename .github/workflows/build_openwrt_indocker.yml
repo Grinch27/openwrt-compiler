@@ -303,9 +303,11 @@ jobs:
           else
             echo ".config file not found"
           fi
-
-          yes "" | make oldconfig
-          # cat ./.config
+          # yes "" |
+          set +e
+          make oldconfig
+          set -e
+          cat ./.config
 
       - name: (patches) Apply patches
         id: patch
@@ -339,7 +341,10 @@ jobs:
         run: |
           echo -e "Current working directory: $(pwd)"
           echo "make oldconfig: update .config file..."
-          yes "" | make oldconfig
+          # yes "" | 
+          set +e
+          make oldconfig
+          set -e
           cat ./.config
 
       - name: Clean & Rebuild host tools
