@@ -129,7 +129,7 @@ jobs:
       PATH_output: "/builder/output"
       PATH_backup: "/builder/backup"
       PATH_self: "/builder/self"
-      release_md: "/builder/release.md"
+      MD_release: "/builder/release.md"
       # PATH_patches: "/builder/target/patches"
     steps:
       # ========== Pre: Settings ==========
@@ -437,9 +437,9 @@ jobs:
         run: |
           printf "Current working directory: %s\n" "$(pwd)"
 
-          release_md_dir=$(dirname ${release_md})
-          mkdir -p ${release_md_dir}
-          : > ${release_md}
+          MD_release_dir=$(dirname ${MD_release})
+          mkdir -p ${MD_release_dir}
+          : > ${MD_release}
 
           record_to_markdown() {
             local title="$1"
@@ -449,9 +449,9 @@ jobs:
 
             if [[ -n "${code_block}" ]]; then
               format="\n### %s\n\n<details>\n<summary>%s</summary>\n\n\`\`\`%s\n%s\n\`\`\`\n\n</details>\n"
-              printf "${format}" "${title}" "${title}" "${code_block}" "${content}" | tee -a ${release_md}
+              printf "${format}" "${title}" "${title}" "${code_block}" "${content}" | tee -a ${MD_release}
             else
-              printf "${format}" "${title}" "${content}" | tee -a ${release_md}
+              printf "${format}" "${title}" "${content}" | tee -a ${MD_release}
             fi
           }
 
@@ -484,7 +484,7 @@ jobs:
           # profiles_json_content=$(jq '.' "$profiles_json_path")
           # # record_to_markdown "Profiles" "$profiles_json_content" "json"
 
-          cat ${release_md}
+          cat ${MD_release}
 
       - name: Upload OpenWrt to Release
         id: release
@@ -500,4 +500,4 @@ jobs:
           removeArtifacts: false
           replacesArtifacts: true
           token: "${{ secrets.GITHUB_TOKEN }}"
-          bodyFile: "${{ env.release_md }}"
+          bodyFile: "${{ env.MD_release }}"
