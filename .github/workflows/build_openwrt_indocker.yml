@@ -292,6 +292,8 @@ jobs:
       - name: (.config) Load custom configuration
         id: config-custom
         working-directory: ${{ env.PATH_target }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           echo -e "Current working directory: $(pwd)"
 
@@ -303,7 +305,7 @@ jobs:
           fi
 
           yes "" | make oldconfig
-          cat ./.config
+          # cat ./.config
 
       - name: (patches) Apply patches
         id: patch
