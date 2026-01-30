@@ -353,7 +353,8 @@ jobs:
         working-directory: ${{ env.PATH_target }}
         run: |
           make dirclean
-          make tools/install -j$(($(nproc) + 1))
+          # make tools/install -j$(($(nproc) + 1))
+          make tools/install -j$(($(nproc) + 1)) V=s
 
       - name: Download package
         id: package
