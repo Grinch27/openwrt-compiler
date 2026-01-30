@@ -1,4 +1,4 @@
-name: Build OpenWrt
+name: (Docker) Build OpenWrt
 
 permissions:
   contents: write
