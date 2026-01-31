@@ -456,6 +456,7 @@ jobs:
           mkdir -p ${MD_release_dir}
           : > ${MD_release}
 
+          set +e
           record_to_markdown() {
             local title="$1"
             local content="$2"
@@ -500,6 +501,7 @@ jobs:
           # # record_to_markdown "Profiles" "$profiles_json_content" "json"
 
           cat ${MD_release}
+          set -e
 
       - name: Upload OpenWrt to Release
         id: release
