@@ -43,7 +43,7 @@ jobs:
     uses: ./.github/workflows/build_openwrt_indocker.yml
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 2
       matrix:
         runner_image: ["ubuntu-latest"]
         openwrt_repo: ["https://git.openwrt.org/openwrt/openwrt.git"]
