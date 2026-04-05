@@ -95,6 +95,15 @@ jobs:
         shell: bash
     container:
       image: ubuntu:devel
+      # 为 loop、device-mapper 和 LVM 尽量提供容器权限
+      options: >-
+        --privileged
+        --cap-add=SYS_ADMIN
+        --cap-add=MKNOD
+        --security-opt apparmor=unconfined
+        --security-opt seccomp=unconfined
+      volumes:
+        - /lib/modules:/lib/modules:ro
     env:
       DEBIAN_FRONTEND: noninteractive
       FORCE_UNSAFE_CONFIGURE: "1"
