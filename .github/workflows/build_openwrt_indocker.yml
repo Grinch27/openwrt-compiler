@@ -118,14 +118,14 @@ jobs:
       FORCE_UNSAFE_CONFIGURE: "1"
       # ========= Toolchain Environment Variables ==========
       # ----- gcc -----
-      gcc_purge: true
-      gcc_install: true
+      gcc_purge: false
+      gcc_install: false
       gcc_switch: false
       gcc_version: ""
       gcc_aarch64: false
       # ----- clang -----
       clang_purge: false
-      clang_install: true
+      clang_install: false
       clang_switch: false
       clang_version: ""
       # ----- jdk -----
