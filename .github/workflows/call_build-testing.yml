@@ -13,13 +13,13 @@ on:
 jobs:
   heads:
     name: Heads of ${{ matrix.repo_target }}
-    runs-on: ${{ matrix.runner_image || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.runner_image || 'ubuntu-26.04' }}
     outputs:
       latest_branch: ${{ steps.find_latest.outputs.latest_branch }}
     strategy:
       fail-fast: false
       matrix:
-        runner_image: ["ubuntu-latest"]
+        runner_image: ["ubuntu-26.04"]
         repo_target: ["https://github.com/immortalwrt/immortalwrt.git"]
     steps:
       - name: Get the latest openwrt version branch
@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner_image: ["ubuntu-24.04"]
+        runner_image: ["ubuntu-26.04"]
         openwrt_repo: [
             # "github.com/immortalwrt/immortalwrt.git",
             "github.com/hanwckf/immortalwrt-mt798x.git",

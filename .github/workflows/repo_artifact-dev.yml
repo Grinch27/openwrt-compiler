@@ -8,7 +8,7 @@ on:
         description: "Runner Image"
         type: string
         required: false
-        default: "ubuntu-latest"
+        default: "ubuntu-26.04"
       Target_Repository:
         description: "Target Repository"
         required: true
@@ -51,7 +51,7 @@ env:
 jobs:
   build:
     name: ${{ inputs.Target_Repository }} - ${{ inputs.Target_Branch }}
-    runs-on: ${{ inputs.runner_image || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner_image || 'ubuntu-26.04' }}
     env:
       DEBIAN_FRONTEND: noninteractive
       path_build: "/build"

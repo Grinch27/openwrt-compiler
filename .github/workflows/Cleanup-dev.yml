@@ -13,7 +13,7 @@ run-name: Delete - ${{ inputs.keyword }}
 jobs:
   delete:
     name: ${{ inputs.keyword }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Install GitHub CLI
         run: |

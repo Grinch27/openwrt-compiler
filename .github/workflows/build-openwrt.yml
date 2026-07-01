@@ -41,7 +41,7 @@ on:
         description: "Runner Image"
         type: string
         required: false
-        default: "ubuntu-latest"
+        default: "ubuntu-26.04"
   workflow_call:
     inputs:
       OpenWrt_Repository:
@@ -74,7 +74,7 @@ run-name: ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ input
 jobs:
   build:
     name: ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
-    runs-on: ${{ inputs.runner_image || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner_image || 'ubuntu-26.04' }}
     env:
       DEBIAN_FRONTEND: noninteractive
       # ----- gcc -----
