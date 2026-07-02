@@ -10,11 +10,6 @@ on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
-      source_family:
-        description: "Source family: openwrt or immortalwrt"
-        required: true
-        default: "openwrt"
-        type: string
       source_repo:
         description: "Source repository URL, for example https://github.com/openwrt/openwrt.git"
         required: true
@@ -24,11 +19,6 @@ on:
         description: "Source branch, for example main, master, or openwrt-24.10"
         required: true
         default: "main"
-        type: string
-      build_backend:
-        description: "Build backend. First stage supports docker only."
-        required: false
-        default: "docker"
         type: string
       Target_System:
         description: "Target System"
@@ -65,11 +55,6 @@ on:
         default: "ubuntu-26.04"
   workflow_call:
     inputs:
-      source_family:
-        description: "Source family: openwrt or immortalwrt"
-        required: true
-        default: "openwrt"
-        type: string
       source_repo:
         description: "Source repository URL"
         required: true
@@ -77,11 +62,6 @@ on:
       source_branch:
         description: "Source branch"
         required: true
-        type: string
-      build_backend:
-        description: "Build backend. First stage supports docker only."
-        required: false
-        default: "docker"
         type: string
       Target_System:
         description: "Target System"
@@ -105,7 +85,7 @@ on:
         default: "ubuntu-26.04"
         type: string
 
-run-name: ${{ inputs.source_family }}-${{ inputs.build_backend }}-${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+run-name: ${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
 
 env:
   custom_env: ${{ inputs.custom_env }}
@@ -114,7 +94,7 @@ env:
 
 jobs:
   build:
-    name: ${{ inputs.source_family }}-${{ inputs.build_backend }}-${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+    name: ${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
     runs-on: ${{ inputs.runner_image || 'ubuntu-26.04' }}
     permissions: write-all
     defaults:
@@ -164,7 +144,6 @@ jobs:
       qemu_install: false
       # ========= Workspace Environment Variables ==========
       # ----- Repository -----
-      SOURCE_FAMILY: "${{ inputs.source_family }}"
       SOURCE_REPO: "${{ inputs.source_repo }}"
       SOURCE_BRANCH: "${{ inputs.source_branch }}"
       REPO_target: "${{ inputs.source_repo }}"
@@ -185,23 +164,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "${{ inputs.source_family }}" in
-            openwrt|immortalwrt)
-              ;;
-            *)
-              echo "::error::Unsupported source_family='${{ inputs.source_family }}'. Expected openwrt or immortalwrt."
-              exit 1
-              ;;
-          esac
-
-          case "${{ inputs.build_backend }}" in
-            docker)
-              ;;
-            *)
-              echo "::error::Unsupported build_backend='${{ inputs.build_backend }}'. First-stage all-in-one supports docker only."
-              exit 1
-              ;;
-          esac
+          test -n "${{ inputs.source_repo }}"
+          test -n "${{ inputs.source_branch }}"
+          test -n "${{ inputs.Target_System }}"
+          test -n "${{ inputs.Subtarget }}"
 
       - name: (Env) GCC Cross-Compiler
         id: env-gcc_cross
@@ -233,7 +199,6 @@ jobs:
           fi
 
           # ========== Set source repo branch (sanitize URL) ==========
-          SOURCE_FAMILY="${{ inputs.source_family }}"
           SOURCE_REPO_IN="${{ inputs.source_repo }}"
           SOURCE_BRANCH="${{ inputs.source_branch }}"
 
@@ -259,7 +224,6 @@ jobs:
 
           # ========== GITHUB_ENV ==========
           env_vars=(
-            "SOURCE_FAMILY"
             "SOURCE_REPO"
             "SOURCE_BRANCH"
             "REPO_target"
@@ -552,8 +516,6 @@ jobs:
 
           # 记录Clone源码的分支和构建者、编译完成时间
           # record_to_markdown "Build ${Target_Profile} - by ${REPO_self_owner}" ""
-          # record_to_markdown "Source branch" "- [${SOURCE_FAMILY};${REPO_target_branch}](${REPO_target}/tree/${REPO_target_branch})"
-          record_to_markdown "Source Family" "- [x] ${SOURCE_FAMILY}"
           record_to_markdown "Target" "- [x] ${Target_System} - ${Subtarget} - ${Target_Profile}"
           record_to_markdown "Timestamp" "- [x] $(date +"%Y-%m-%d %H:%M:%S %z")"
           record_to_markdown "Repository" "- [x] ${REPO_target}"
@@ -590,8 +552,8 @@ jobs:
           timestamp: ${{ steps.output.outputs.timestamp }}
           version_kernel: ${{ steps.version-kernel.outputs.version }}
         with:
-          name: "${{ inputs.source_family }}+${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
-          tag: "${{ inputs.source_family }}+${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
+          name: "${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
+          tag: "${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
           artifacts: "${{ env.PATH_output }}/*"
           allowUpdates: true
           removeArtifacts: false

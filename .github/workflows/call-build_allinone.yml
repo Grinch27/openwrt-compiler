@@ -16,55 +16,45 @@ jobs:
     name: Resolve runner-image
     runs-on: ubuntu-latest
     outputs:
-      runner_image: ${{ steps.resolve-runner-image.outputs.runner_image }}
+      runner_image: ${{ steps.resolve-runner-image.outputs.runs_on }}
     steps:
       - name: Resolve runner-image
         id: resolve-runner-image
         uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
 
   matrix:
-    name: ${{ matrix.source_family }}-${{ matrix.build_backend }}-${{ matrix.Target_Profile || matrix.Subtarget }}
+    name: ${{ matrix.source_branch }}-${{ matrix.Target_Profile || matrix.Subtarget }}
+    needs: runner-image
     permissions: write-all
     strategy:
       fail-fast: false
       matrix:
         include:
-          - source_family: "openwrt"
-            source_repo: "https://github.com/openwrt/openwrt.git"
+          - source_repo: "https://github.com/openwrt/openwrt.git"
             source_branch: "main"
-            build_backend: "docker"
             Target_System: "MediaTek_Ralink_ARM"
             Subtarget: "MT798x"
             Target_Profile: "MT798x_docker"
-            runner_image: ${{ needs.runner-image.outputs.runner_image }}
             custom_env: ""
-          - source_family: "immortalwrt"
-            source_repo: "https://github.com/immortalwrt/immortalwrt.git"
+          - source_repo: "https://github.com/immortalwrt/immortalwrt.git"
             source_branch: "master"
-            build_backend: "docker"
             Target_System: "MediaTek_Ralink_ARM"
             Subtarget: "MT798x"
             Target_Profile: "immortalwrt-mt798x_7981"
-            runner_image: ${{ needs.runner-image.outputs.runner_image }}
             custom_env: ""
-          - source_family: "immortalwrt"
-            source_repo: "https://github.com/immortalwrt/immortalwrt.git"
+          - source_repo: "https://github.com/immortalwrt/immortalwrt.git"
             source_branch: "master"
-            build_backend: "docker"
             Target_System: "MediaTek_Ralink_ARM"
             Subtarget: "MT798x"
             Target_Profile: "immortalwrt-mt798x_7986"
-            runner_image: ${{ needs.runner-image.outputs.runner_image }}
             custom_env: ""
     uses: ./.github/workflows/build-openwrt_allinone.yml
     with:
-      source_family: ${{ matrix.source_family }}
       source_repo: ${{ matrix.source_repo }}
       source_branch: ${{ matrix.source_branch }}
-      build_backend: ${{ matrix.build_backend }}
       Target_System: ${{ matrix.Target_System }}
       Subtarget: ${{ matrix.Subtarget }}
       Target_Profile: ${{ matrix.Target_Profile }}
       custom_env: ${{ matrix.custom_env }}
-      runner_image: ${{ matrix.runner_image }}
+      runner_image: ${{ needs.runner-image.outputs.runner_image }}
     secrets: inherit
