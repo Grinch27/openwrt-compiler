@@ -7,10 +7,15 @@ run-name: Build Matrix for ImmortalWrt (Docker)
 on:
   repository_dispatch:
   workflow_dispatch:
+  schedule:
+    - cron: "0 23 * * *"
+
+permissions: write-all
 
 jobs:
   immortalwrt:
     name: ${{ matrix.openwrt_branch }} - ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
+    permissions: write-all
     uses: ./.github/workflows/build-immortalwrt.yml
     strategy:
       fail-fast: false
@@ -33,3 +38,5 @@ jobs:
       Target_System: ${{ matrix.workflows_inputs.Target_System }}
       Subtarget: ${{ matrix.workflows_inputs.Subtarget }}
       Target_Profile: ${{ matrix.workflows_inputs.Target_Profile }}
+      custom_env: ""
+    secrets: inherit

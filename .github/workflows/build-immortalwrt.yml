@@ -1,7 +1,6 @@
 name: (Docker) Build ImmortalWrt
 
-permissions:
-  contents: write
+permissions: write-all
 
 on:
   repository_dispatch:
@@ -92,6 +91,7 @@ run-name: ImmortalWrt ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }}
 jobs:
   build:
     name: ImmortalWrt ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+    permissions: write-all
     uses: ./.github/workflows/build_openwrt_indocker.yml
     secrets: inherit
     with:
