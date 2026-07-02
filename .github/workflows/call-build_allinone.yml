@@ -1,0 +1,63 @@
+name: Build Matrix All-in-One
+
+# Test-only OpenWrt / ImmortalWrt matrix entrypoint for the all-in-one workflow.
+run-name: Build Matrix for OpenWrt / ImmortalWrt All-in-One
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+  schedule:
+    - cron: "30 23 * * *"
+
+permissions: write-all
+
+jobs:
+  allinone:
+    name: ${{ matrix.source_family }}-${{ matrix.build_backend }}-${{ matrix.Target_Profile || matrix.Subtarget }}
+    permissions: write-all
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source_family: "openwrt"
+            source_repo: "https://github.com/openwrt/openwrt.git"
+            source_branch: "main"
+            build_backend: "docker"
+            Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+            Target_Profile: "MT798x_docker"
+            runner_image: "ubuntu-26.04"
+            custom_env: ""
+
+          - source_family: "immortalwrt"
+            source_repo: "https://github.com/immortalwrt/immortalwrt.git"
+            source_branch: "master"
+            build_backend: "docker"
+            Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+            Target_Profile: "immortalwrt-mt798x_7981"
+            runner_image: "ubuntu-26.04"
+            custom_env: ""
+
+          - source_family: "immortalwrt"
+            source_repo: "https://github.com/immortalwrt/immortalwrt.git"
+            source_branch: "master"
+            build_backend: "docker"
+            Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+            Target_Profile: "immortalwrt-mt798x_7986"
+            runner_image: "ubuntu-26.04"
+            custom_env: ""
+
+    uses: ./.github/workflows/build-openwrt_allinone.yml
+    with:
+      source_family: ${{ matrix.source_family }}
+      source_repo: ${{ matrix.source_repo }}
+      source_branch: ${{ matrix.source_branch }}
+      build_backend: ${{ matrix.build_backend }}
+      Target_System: ${{ matrix.Target_System }}
+      Subtarget: ${{ matrix.Subtarget }}
+      Target_Profile: ${{ matrix.Target_Profile }}
+      custom_env: ${{ matrix.custom_env }}
+      runner_image: ${{ matrix.runner_image }}
+    secrets: inherit

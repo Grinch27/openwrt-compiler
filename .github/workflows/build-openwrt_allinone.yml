@@ -1,0 +1,600 @@
+name: Build OpenWrt All-in-One
+
+permissions: write-all
+
+defaults:
+  run:
+    shell: bash
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      source_family:
+        description: "Source family: openwrt or immortalwrt"
+        required: true
+        default: "openwrt"
+        type: string
+      source_repo:
+        description: "Source repository URL, for example https://github.com/openwrt/openwrt.git"
+        required: true
+        default: "https://github.com/openwrt/openwrt.git"
+        type: string
+      source_branch:
+        description: "Source branch, for example main, master, or openwrt-24.10"
+        required: true
+        default: "main"
+        type: string
+      build_backend:
+        description: "Build backend. First stage supports docker only."
+        required: false
+        default: "docker"
+        type: string
+      Target_System:
+        description: "Target System"
+        required: true
+        default: "x86"
+        type: choice
+        options:
+          - "x86"
+          - "MediaTek_Ralink_ARM"
+          - "MediaTek_Ralink_MIPS"
+      Subtarget:
+        description: "Subtarget"
+        required: true
+        default: "x86_64"
+        type: choice
+        options:
+          - "x86_64"
+          - "MT798x"
+          - "MT7620"
+      Target_Profile:
+        description: "Target Profile"
+        required: false
+        default: ""
+        type: string
+      custom_env:
+        description: "key=value;key=value"
+        type: string
+        required: false
+        default: ""
+      runner_image:
+        description: "Runner Image"
+        type: string
+        required: false
+        default: "ubuntu-26.04"
+  workflow_call:
+    inputs:
+      source_family:
+        description: "Source family: openwrt or immortalwrt"
+        required: true
+        default: "openwrt"
+        type: string
+      source_repo:
+        description: "Source repository URL"
+        required: true
+        type: string
+      source_branch:
+        description: "Source branch"
+        required: true
+        type: string
+      build_backend:
+        description: "Build backend. First stage supports docker only."
+        required: false
+        default: "docker"
+        type: string
+      Target_System:
+        description: "Target System"
+        required: true
+        type: string
+      Subtarget:
+        description: "Subtarget"
+        required: true
+        type: string
+      Target_Profile:
+        description: "Target Profile"
+        required: false
+        type: string
+      custom_env:
+        description: "key=value;key=value"
+        type: string
+        required: false
+      runner_image:
+        description: "Runner Image"
+        required: false
+        default: "ubuntu-26.04"
+        type: string
+
+run-name: ${{ inputs.source_family }}-${{ inputs.build_backend }}-${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+
+env:
+  custom_env: ${{ inputs.custom_env }}
+  DEBIAN_FRONTEND: noninteractive
+  FORCE_UNSAFE_CONFIGURE: "1"
+
+jobs:
+  build:
+    name: ${{ inputs.source_family }}-${{ inputs.build_backend }}-${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+    runs-on: ${{ inputs.runner_image || 'ubuntu-26.04' }}
+    permissions: write-all
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: ubuntu:devel
+      # 按官方文档允许的字段，尽量给满 GHA 可传递的容器运行权限
+      options: >-
+        --privileged
+        --user=0:0
+        --pid=host
+        --ipc=host
+        --uts=host
+        --cgroupns=host
+        --cap-add=ALL
+        --security-opt apparmor=unconfined
+        --security-opt seccomp=unconfined
+      volumes:
+        - /dev:/dev
+        - /sys:/sys:ro
+        - /sys/fs/cgroup:/sys/fs/cgroup
+        - /run/udev:/run/udev:ro
+        - /lib/modules:/lib/modules:ro
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      FORCE_UNSAFE_CONFIGURE: "1"
+      # ========= Toolchain Environment Variables ==========
+      # ----- gcc -----
+      gcc_purge: false
+      gcc_install: false
+      gcc_switch: false
+      gcc_version: ""
+      gcc_aarch64: false
+      # ----- clang -----
+      clang_purge: false
+      clang_install: false
+      clang_switch: false
+      clang_version: ""
+      # ----- jdk -----
+      jdk_purge: false
+      jdk_install: false
+      jdk_switch: false
+      jdk_version: ""
+      # ----- docker -----
+      docker_install: false
+      qemu_install: false
+      # ========= Workspace Environment Variables ==========
+      # ----- Repository -----
+      SOURCE_FAMILY: "${{ inputs.source_family }}"
+      SOURCE_REPO: "${{ inputs.source_repo }}"
+      SOURCE_BRANCH: "${{ inputs.source_branch }}"
+      REPO_target: "${{ inputs.source_repo }}"
+      REPO_target_branch: "${{ inputs.source_branch }}"
+      REPO_self: "https://github.com/${{ github.repository }}"
+      REPO_self_branch: "main"
+      # ----- Build Path -----
+      PATH_build: "/builder"
+      PATH_target: "/builder/target"
+      PATH_output: "/builder/output"
+      PATH_backup: "/builder/backup"
+      PATH_self: "/builder/self"
+      MD_release: "/builder/release.md"
+      # PATH_patches: "/builder/target/patches"
+    steps:
+      # ========== Pre: Settings ==========
+      - name: Validate all-in-one inputs
+        run: |
+          set -euo pipefail
+
+          case "${{ inputs.source_family }}" in
+            openwrt|immortalwrt)
+              ;;
+            *)
+              echo "::error::Unsupported source_family='${{ inputs.source_family }}'. Expected openwrt or immortalwrt."
+              exit 1
+              ;;
+          esac
+
+          case "${{ inputs.build_backend }}" in
+            docker)
+              ;;
+            *)
+              echo "::error::Unsupported build_backend='${{ inputs.build_backend }}'. First-stage all-in-one supports docker only."
+              exit 1
+              ;;
+          esac
+
+      - name: (Env) GCC Cross-Compiler
+        id: env-gcc_cross
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          if [[ "${{ inputs.Target_System }}" == "MediaTek_Ralink_ARM" ]]; then
+            echo "gcc_aarch64=true" | tee -a $GITHUB_ENV
+          else
+            echo "gcc_aarch64=false" | tee -a $GITHUB_ENV
+          fi
+
+          echo "gcc_cross: ${{ env.gcc_aarch64 }}"
+
+      - name: (Var) environment variable setup
+        id: var-setup
+        working-directory: /
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          # continue_on_error="${{ inputs.continue_on_error || 'false' }}"
+
+          # ========== Openwrt make menuconfig ==========
+          Target_System="${{ inputs.Target_System }}"
+          Subtarget="${{ inputs.Subtarget }}"
+          Target_Profile="${{ inputs.Target_Profile }}"
+          if [[ -z "$Target_Profile" ]]; then
+            Target_Profile="$Subtarget"
+          fi
+
+          # ========== Set source repo branch (sanitize URL) ==========
+          SOURCE_FAMILY="${{ inputs.source_family }}"
+          SOURCE_REPO_IN="${{ inputs.source_repo }}"
+          SOURCE_BRANCH="${{ inputs.source_branch }}"
+
+          if [[ "${SOURCE_REPO_IN}" =~ ^https?:// ]]; then
+            REPO_target="${SOURCE_REPO_IN}"
+          else
+            REPO_target="https://${SOURCE_REPO_IN}"
+          fi
+          SOURCE_REPO="${REPO_target}"
+          REPO_target_branch="${SOURCE_BRANCH}"
+          REPO_self_owner="${{ github.repository_owner }}"
+
+          # ===== Align with indocker workspace (/builder) =====
+          DIR_profile="${Target_System}/${Subtarget}/${Target_Profile}"
+
+          # DIY Files
+          diy_config="${PATH_self}/${DIR_profile}/${Target_Profile}.config"
+          diy_feeds="${PATH_self}/${DIR_profile}/feeds.conf.default"
+          diy_p1_sh="${PATH_self}/${DIR_profile}/diy-part1.sh"
+          diy_p2_sh="${PATH_self}/${DIR_profile}/diy-part2.sh"
+          diy_files="${PATH_self}/${DIR_profile}/files"
+          PATH_patches="${PATH_self}/${DIR_profile}/patches"
+
+          # ========== GITHUB_ENV ==========
+          env_vars=(
+            "SOURCE_FAMILY"
+            "SOURCE_REPO"
+            "SOURCE_BRANCH"
+            "REPO_target"
+            "REPO_target_branch"
+            "REPO_self_owner"
+            "Target_System"
+            "Subtarget"
+            "Target_Profile"
+            "diy_config"
+            "diy_feeds"
+            "diy_p1_sh"
+            "diy_p2_sh"
+            "diy_files"
+            "PATH_patches"
+          )
+          for var in "${env_vars[@]}"; do
+            echo "${var}=${!var}" | tee -a "$GITHUB_ENV"
+          done
+
+      # ========== General Environment Setup: Start ==========
+      - name: Docker Workspace All in One
+        id: docker-workspace
+        uses: Grinch27/github-actions/.github/actions/env-indocker@main
+
+      # ========== General Environment Setup: End ==========
+      - name: Clone Target Repository
+        id: clone-target
+        working-directory: ${{ env.PATH_build }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          rm -rf ${PATH_target}
+          mkdir -p ${PATH_target}
+
+          # Clone target repository: without --depth=1
+          git clone ${REPO_target} ${PATH_target} --single-branch --branch=${REPO_target_branch} 
+          echo -e "REPO_target: [ ${REPO_target} ]\nBRANCH: [ ${REPO_target_branch} ]"
+
+          df -hT ${PWD}
+
+      - name: Version of Target Repo
+        id: git-rev
+        uses: Grinch27/github-actions/.github/actions/git-rev@main
+        with:
+          path_target: ${{ env.PATH_target }}
+
+      - name: Clone self
+        id: clone-self
+        working-directory: /
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          rm -rf ${PATH_self}
+          mkdir -p ${PATH_self}
+
+          git clone ${REPO_self} ${PATH_self} --single-branch --depth=1 --branch=${REPO_self_branch}
+          echo -e "REPO_self: [ ${REPO_self} ]\nBRANCH: [ ${REPO_self_branch} ]"
+
+          df -hT ${PWD}
+
+      # ========== Compile: Start ==========
+      - name: (feeds.conf.default) Load custom feeds
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          if [[ -e "${diy_feeds}" && ! "${diy_feeds}" -ef "${PATH_target}/feeds.conf.default" ]]; then
+            echo -e "diy_feeds: ${diy_feeds}"
+            cp -f ${diy_feeds} ${PATH_target}/feeds.conf.default
+          fi
+
+      - name: (DIY_P1.sh) after load feeds, before update feeds
+        working-directory: ${{ env.PATH_target }}
+        env:
+          file_script: ${{ env.diy_p1_sh }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          if [[ -e "${file_script}" ]]; then
+            echo -e "file_script: ${file_script}"
+            chmod +x ${file_script}
+            bash ${file_script}
+            cat ${file_script}
+          fi
+
+      - name: Update feeds
+        id: feeds-update
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          cat ./feeds.conf.default
+          ./scripts/feeds update -a
+
+      - name: (Install) feeds
+        id: feeds-install
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          ./scripts/feeds install -a
+
+      - name: (/files) Load custom files
+        id: files
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          mkdir -p ./files/etc/config
+          if [[ -e "${diy_files}" ]]; then
+              cp -rf ${diy_files}/* ./files/
+          fi
+
+      - name: (.config) Load custom configuration
+        id: config-custom
+        working-directory: ${{ env.PATH_target }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          if [[ -e "${diy_config}" && ! "${diy_config}" -ef "${PATH_target}/.config" ]]; then
+            echo -e "diy_config: ${diy_config}"
+            cp -f ${diy_config} ${PATH_target}/.config
+          else
+            echo ".config file not found"
+          fi
+          # yes "" |
+          set +e
+          make oldconfig
+          set -e
+          cat ./.config
+
+      - name: (patches) Apply patches
+        id: patch
+        if: ${{ 'true' == 'false' }} # disable
+        env:
+          PATH_patches: ${{ env.PATH_patches }}
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          printf "Current working directory: %s\n" "$(pwd)"
+
+          if [ -d "${PATH_patches}" ]; then
+            find "${PATH_patches}" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "cat '%' | patch -d './' -B --merge -p1 --forward"
+          fi
+
+      - name: (DIY_P2.sh) after install feeds, before download package
+        working-directory: ${{ env.PATH_target }}
+        env:
+          file_script: ${{ env.diy_p2_sh }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          if [[ -e "${file_script}" ]]; then
+            echo -e "file_script: ${file_script}"
+            chmod +x ${file_script}
+            bash ${file_script}
+            cat ${file_script}
+          fi
+
+      - name: (.config) Update config
+        id: config-update
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          echo "make oldconfig: update .config file..."
+          # yes "" | 
+          set +e
+          make oldconfig
+          set -e
+          cat ./.config
+
+      - name: Clean & Rebuild host tools
+        id: make-clean
+        # if: ${{ 'true' == 'false' }} # disable
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          make dirclean
+          # make tools/install -j$(($(nproc) + 1))
+          make tools/install -j$(($(nproc) + 1)) V=s
+
+      - name: Download package
+        id: package
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          echo -e "make download: $(($(nproc) + 1)) thread"
+          make download -j$(($(nproc) + 1))
+          # find dl -size -1024c -exec ls -l {} \;
+          # find dl -size -1024c -exec rm -f {} \;
+
+      - name: Test Before Compile
+        id: make-test
+        if: ${{ 'true' == 'false' }} # disable
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          # grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
+
+      - name: Compile the OpenWrt
+        id: compile
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+          echo -e "$(($(nproc) + 1)) thread compile"
+          # if [ "${{ env.continue_on_error }}" == "true" ]; then
+          #   make -j$(($(nproc) + 1)) V=s -k
+          # else
+          #   make -j$(($(nproc) + 1)) V=s
+          # fi
+          make -j$(($(nproc) + 1)) V=s
+
+      - name: Copy to output
+        id: output
+        working-directory: /
+        env:
+          PATH_TARGET: ${{ env.PATH_target }}/bin/targets/*/*/*
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          [[ -e "${PATH_output}" ]] || mkdir -p ${PATH_output}
+
+          echo "复制 ${PATH_TARGET} 到: ${PATH_output}/"
+          cp -rf ${PATH_TARGET} ${PATH_output}/
+          ls -lhR ${PATH_output}/
+
+          echo "复制 ${PATH_target}/.config 到: ${PATH_output}/config"
+          cp -f ${PATH_target}/.config ${PATH_output}/config
+
+          echo -e "timestamp=$(date +"%y%mw%V")" >> ${GITHUB_OUTPUT}
+
+      - name: Version of the kernel
+        id: version-kernel
+        working-directory: ${{ env.PATH_output }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          # 查找 packages 目录中的 kernel 文件
+          Package_Kernel=$(find packages -name 'kernel[-_]*.*pk' | head -n 1)
+          echo "Kernel file: ${Package_Kernel}"
+
+          if [ -n "$Package_Kernel" ]; then
+            # 提取文件名
+            Filename_Kernel=$(basename "${Package_Kernel}")
+            echo "Filename: ${Filename_Kernel}"
+            
+            # 使用正则表达式匹配 'kernel-' 或 'kernel_' 后面的 x.y.z 版本号
+            # if [[ "${Filename_Kernel}" =~ kernel[-_](\d+\.\d+\.\d+) ]]; then
+            if [[ "${Filename_Kernel}" =~ kernel[-_]([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+              Version_Kernel="${BASH_REMATCH[1]}"
+
+              echo "Kernel version: ${Version_Kernel}"
+              echo "version=${Version_Kernel}" | tee -a $GITHUB_OUTPUT
+            else
+              echo "Kernel version pattern not found in filename."
+            fi
+          else
+            echo "No kernel file found."
+          fi
+
+      - name: (Clean) output
+        id: clean-output
+        working-directory: ${{ env.PATH_output }}
+        run: |
+          echo -e "Current working directory: $(pwd)"
+
+          # handle Dir packages
+          ls -lhR ./packages
+          rm -rf ./packages
+
+      - name: "[release.md] Record release.md"
+        id: record
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          printf "Current working directory: %s\n" "$(pwd)"
+
+          MD_release_dir=$(dirname ${MD_release})
+          mkdir -p ${MD_release_dir}
+          : > ${MD_release}
+
+          set +e
+          record_to_markdown() {
+            local title="$1"
+            local content="$2"
+            local code_block="${3:-}"
+            local format="\n### %s\n%s\n"
+
+            if [[ -n "${code_block}" ]]; then
+              format="\n### %s\n\n<details>\n<summary>%s</summary>\n\n\`\`\`%s\n%s\n\`\`\`\n\n</details>\n"
+              printf "${format}" "${title}" "${title}" "${code_block}" "${content}" | tee -a ${MD_release}
+            else
+              printf "${format}" "${title}" "${content}" | tee -a ${MD_release}
+            fi
+          }
+
+          # 记录Clone源码的分支和构建者、编译完成时间
+          # record_to_markdown "Build ${Target_Profile} - by ${REPO_self_owner}" ""
+          # record_to_markdown "Source branch" "- [${SOURCE_FAMILY};${REPO_target_branch}](${REPO_target}/tree/${REPO_target_branch})"
+          record_to_markdown "Source Family" "- [x] ${SOURCE_FAMILY}"
+          record_to_markdown "Target" "- [x] ${Target_System} - ${Subtarget} - ${Target_Profile}"
+          record_to_markdown "Timestamp" "- [x] $(date +"%Y-%m-%d %H:%M:%S %z")"
+          record_to_markdown "Repository" "- [x] ${REPO_target}"
+          record_to_markdown "Repository Branch" "- [x] ${REPO_target_branch}"
+
+          declare -A file_records=(
+            ["${diy_feeds}"]="feeds setting|bash"
+            ["${diy_p1_sh}"]="$(basename "${diy_p1_sh}")|bash"
+            ["${diy_p2_sh}"]="$(basename "${diy_p2_sh}")|bash"
+            ["${diy_config}"]="pre-config|makefile"
+            ["${{ env.PATH_target }}/.config"]=".config|makefile"
+          )
+          for file_path in "${!file_records[@]}"; do
+            if [[ -f $file_path ]]; then
+              IFS='|' read -r section_title file_type <<< "${file_records[$file_path]}"
+              # 合并grep命令，一次性移除注释和空行
+              code_content=$(grep -E '^[^#]' "$file_path" | grep -Ev '^\s*$' | sed 's/\s\+$//g')
+              record_to_markdown "$section_title" "$code_content" "$file_type"
+            fi
+          done
+
+          # # 读取profiles.json
+          # profiles_json_path="${{ env.PATH_output }}/profiles.json"
+          # profiles_json_content=$(jq '.' "$profiles_json_path")
+          # # record_to_markdown "Profiles" "$profiles_json_content" "json"
+
+          cat ${MD_release}
+          set -e
+
+      - name: Upload OpenWrt to Release
+        id: release
+        uses: ncipollo/release-action@main
+        env:
+          timestamp: ${{ steps.output.outputs.timestamp }}
+          version_kernel: ${{ steps.version-kernel.outputs.version }}
+        with:
+          name: "${{ inputs.source_family }}+${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
+          tag: "${{ inputs.source_family }}+${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
+          artifacts: "${{ env.PATH_output }}/*"
+          allowUpdates: true
+          removeArtifacts: false
+          replacesArtifacts: true
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          bodyFile: "${{ env.MD_release }}"
