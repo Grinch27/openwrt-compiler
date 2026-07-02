@@ -1,0 +1,35 @@
+name: Call Build ImmortalWrt (Docker)
+
+# Manual ImmortalWrt matrix entrypoint. The actual build implementation lives in
+# build_openwrt_indocker.yml through the build-immortalwrt.yml wrapper.
+run-name: Build Matrix for ImmortalWrt (Docker)
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+
+jobs:
+  immortalwrt:
+    name: ${{ matrix.openwrt_branch }} - ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
+    uses: ./.github/workflows/build-immortalwrt.yml
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runner_image: ["ubuntu-26.04"]
+        openwrt_repo: ["https://github.com/immortalwrt/immortalwrt.git"]
+        openwrt_branch: ["master"]
+        workflows_inputs:
+          - Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+            Target_Profile: "immortalwrt-mt798x_7981"
+          - Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+            Target_Profile: "immortalwrt-mt798x_7986"
+    with:
+      runner_image: ${{ matrix.runner_image }}
+      OpenWrt_Repository: ${{ matrix.openwrt_repo }}
+      OpenWrt_Branch: ${{ matrix.openwrt_branch }}
+      Target_System: ${{ matrix.workflows_inputs.Target_System }}
+      Subtarget: ${{ matrix.workflows_inputs.Subtarget }}
+      Target_Profile: ${{ matrix.workflows_inputs.Target_Profile }}
