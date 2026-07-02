@@ -1,4 +1,4 @@
-name: Build Matrix All-in-One
+name: Call Build (All in One)
 
 # Test-only OpenWrt / ImmortalWrt matrix entrypoint for the all-in-one workflow.
 run-name: Build Matrix for OpenWrt / ImmortalWrt All-in-One
@@ -28,7 +28,6 @@ jobs:
             Target_Profile: "MT798x_docker"
             runner_image: "ubuntu-26.04"
             custom_env: ""
-
           - source_family: "immortalwrt"
             source_repo: "https://github.com/immortalwrt/immortalwrt.git"
             source_branch: "master"
@@ -38,7 +37,6 @@ jobs:
             Target_Profile: "immortalwrt-mt798x_7981"
             runner_image: "ubuntu-26.04"
             custom_env: ""
-
           - source_family: "immortalwrt"
             source_repo: "https://github.com/immortalwrt/immortalwrt.git"
             source_branch: "master"
@@ -48,7 +46,6 @@ jobs:
             Target_Profile: "immortalwrt-mt798x_7986"
             runner_image: "ubuntu-26.04"
             custom_env: ""
-
     uses: ./.github/workflows/build-openwrt_allinone.yml
     with:
       source_family: ${{ matrix.source_family }}
