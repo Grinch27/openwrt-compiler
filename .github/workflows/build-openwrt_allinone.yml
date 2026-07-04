@@ -1,109 +1,46 @@
-name: Build OpenWrt All-in-One
+name: Call Build (Docker)
 
-permissions: write-all
-
-defaults:
-  run:
-    shell: bash
+# Github Actions workflow syntax reference:
+# https://docs.github.com/zh/actions/reference/workflows-and-actions/workflow-syntax
+# https://docs.github.com/zh/actions/reference/workflows-and-actions/metadata-syntax#runs-for-composite-actions
+# https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#yaml-anchors-and-aliases
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/call-build_docker.yml"
+  schedule:
+    # UTC Time
+    - cron: "0 22 * * *"
   repository_dispatch:
   workflow_dispatch:
-    inputs:
-      source_repo:
-        description: "Source repository URL, for example https://github.com/openwrt/openwrt.git"
-        required: true
-        default: "https://github.com/openwrt/openwrt.git"
-        type: string
-      source_branch:
-        description: "Source branch, for example main, master, or openwrt-24.10"
-        required: true
-        default: "main"
-        type: string
-      Target_System:
-        description: "Target System"
-        required: true
-        default: "x86"
-        type: choice
-        options:
-          - "x86"
-          - "MediaTek_Ralink_ARM"
-          - "MediaTek_Ralink_MIPS"
-      Subtarget:
-        description: "Subtarget"
-        required: true
-        default: "x86_64"
-        type: choice
-        options:
-          - "x86_64"
-          - "MT798x"
-          - "MT7620"
-      Target_Profile:
-        description: "Target Profile"
-        required: false
-        default: ""
-        type: string
-      custom_env:
-        description: "key=value;key=value"
-        type: string
-        required: false
-        default: ""
-      runner_image:
-        description: "Runner Image"
-        type: string
-        required: false
-        default: "ubuntu-26.04"
-  workflow_call:
-    inputs:
-      source_repo:
-        description: "Source repository URL"
-        required: true
-        type: string
-      source_branch:
-        description: "Source branch"
-        required: true
-        type: string
-      Target_System:
-        description: "Target System"
-        required: true
-        type: string
-      Subtarget:
-        description: "Subtarget"
-        required: true
-        type: string
-      Target_Profile:
-        description: "Target Profile"
-        required: false
-        type: string
-      custom_env:
-        description: "key=value;key=value"
-        type: string
-        required: false
-      runner_image:
-        description: "Runner Image"
-        required: false
-        default: "ubuntu-26.04"
-        type: string
 
-run-name: ${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
-
-env:
-  custom_env: ${{ inputs.custom_env }}
-  DEBIAN_FRONTEND: noninteractive
-  FORCE_UNSAFE_CONFIGURE: "1"
+run-name: Build Matrix for OpenWrt (Docker)
 
 jobs:
-  build:
-    name: ${{ inputs.source_branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
-    runs-on: ${{ inputs.runner_image || 'ubuntu-26.04' }}
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    outputs:
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
+  toolchain:
+    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - ubuntu:devel - toolchain
+    needs: runner-image
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     permissions: write-all
     defaults:
       run:
         shell: bash
     container:
-      image: ubuntu:devel
-      # 按官方文档允许的字段，尽量给满 GHA 可传递的容器运行权限
-      options: >-
+      image: &container_image ubuntu:devel
+      options: &container_options >-
         --privileged
         --user=0:0
         --pid=host
@@ -113,12 +50,91 @@ jobs:
         --cap-add=ALL
         --security-opt apparmor=unconfined
         --security-opt seccomp=unconfined
-      volumes:
+        --init
+        --pids-limit=-1
+        --shm-size=12g
+        --ulimit nofile=1048576:1048576
+      volumes: &container_volumes
         - /dev:/dev
-        - /sys:/sys:ro
-        - /sys/fs/cgroup:/sys/fs/cgroup
+        - /sys:/sys:rw
+        - /sys/fs/cgroup:/sys/fs/cgroup:rw
         - /run/udev:/run/udev:ro
         - /lib/modules:/lib/modules:ro
+        - /var/run/docker.sock:/var/run/docker.sock
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      FORCE_UNSAFE_CONFIGURE: "1"
+    outputs:
+      gcc_version: ${{ steps.resolve-toolchain.outputs.gcc_version }}
+      clang_version: ${{ steps.resolve-toolchain.outputs.clang_version }}
+      jdk_version: ${{ steps.resolve-toolchain.outputs.jdk_version }}
+      custom_env: ${{ steps.resolve-toolchain.outputs.custom_env }}
+    steps:
+      - name: Resolve toolchain versions
+        id: resolve-toolchain
+        uses: Grinch27/github-actions/.github/actions/resolve-toolchain-version@main
+
+  heads:
+    name: Heads of ${{ matrix.repo_target }}
+    needs: runner-image
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
+    permissions: write-all
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: *container_image
+      options: *container_options
+      volumes: *container_volumes
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      FORCE_UNSAFE_CONFIGURE: "1"
+    outputs:
+      repo_branch: ${{ steps.git-heads.outputs.repo_branch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        repo_target: ["https://github.com/openwrt/openwrt.git"]
+    steps:
+      - name: git Ensure
+        id: git-install
+        run: |
+          set -euo pipefail
+          command -v git >/dev/null 2>&1 && git --version && exit 0
+          if [[ "$(id -u)" -eq 0 ]]; then
+            apt-get update
+            env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
+          else
+            sudo apt-get update
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
+          fi
+          git --version
+
+      - name: Get the latest openwrt version branch
+        id: git-heads
+        run: |
+          repo_head=$(git ls-remote --heads ${{ matrix.repo_target }} \
+            | grep 'refs/heads/openwrt-[0-9]\+\.[0-9]\+$' \
+            | sed 's/.*refs\/heads\/openwrt-//' \
+            | sort -V \
+            | tail -n1)
+          echo "repo_branch=openwrt-$repo_head" | tee -a $GITHUB_OUTPUT
+
+  action:
+    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - gcc-${{ needs.toolchain.outputs.gcc_version }} - ${{ matrix.openwrt_branch }} - ${{ matrix.workflows_inputs.Target_System }} - ${{ matrix.workflows_inputs.Subtarget }} - ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
+    needs:
+      - runner-image
+      - toolchain
+      - heads
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
+    permissions: write-all
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: *container_image
+      options: *container_options
+      volumes: *container_volumes
     env:
       DEBIAN_FRONTEND: noninteractive
       FORCE_UNSAFE_CONFIGURE: "1"
@@ -144,10 +160,8 @@ jobs:
       qemu_install: false
       # ========= Workspace Environment Variables ==========
       # ----- Repository -----
-      SOURCE_REPO: "${{ inputs.source_repo }}"
-      SOURCE_BRANCH: "${{ inputs.source_branch }}"
-      REPO_target: "${{ inputs.source_repo }}"
-      REPO_target_branch: "${{ inputs.source_branch }}"
+      REPO_target: "${{ matrix.openwrt_repo }}"
+      REPO_target_branch: "${{ matrix.openwrt_branch }}"
       REPO_self: "https://github.com/${{ github.repository }}"
       REPO_self_branch: "main"
       # ----- Build Path -----
@@ -158,23 +172,41 @@ jobs:
       PATH_self: "/builder/self"
       MD_release: "/builder/release.md"
       # PATH_patches: "/builder/target/patches"
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        openwrt_repo: ["https://github.com/openwrt/openwrt.git"]
+        openwrt_branch:
+          - "main"
+          - "${{ needs.heads.outputs.repo_branch }}"
+        workflows_inputs:
+          - Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+            Target_Profile: ""
+          - Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+            Target_Profile: "MT798x_docker"
+          - Target_System: "MediaTek_Ralink_MIPS"
+            Subtarget: "MT7621"
+            Target_Profile: ""
+          - Target_System: "x86"
+            Subtarget: "x86_64"
+            Target_Profile: ""
+        # exclude:
+        #   - openwrt_branch: "${{ needs.heads.outputs.repo_branch }}"
+        #     workflows_inputs:
+        #       Target_System: "x86"
+        #       Subtarget: "x86_64"
+        #       Target_Profile: ""
     steps:
       # ========== Pre: Settings ==========
-      - name: Validate all-in-one inputs
-        run: |
-          set -euo pipefail
-
-          test -n "${{ inputs.source_repo }}"
-          test -n "${{ inputs.source_branch }}"
-          test -n "${{ inputs.Target_System }}"
-          test -n "${{ inputs.Subtarget }}"
-
       - name: (Env) GCC Cross-Compiler
         id: env-gcc_cross
         run: |
           echo -e "Current working directory: $(pwd)"
 
-          if [[ "${{ inputs.Target_System }}" == "MediaTek_Ralink_ARM" ]]; then
+          if [[ "${{ matrix.workflows_inputs.Target_System }}" == "MediaTek_Ralink_ARM" ]]; then
             echo "gcc_aarch64=true" | tee -a $GITHUB_ENV
           else
             echo "gcc_aarch64=false" | tee -a $GITHUB_ENV
@@ -188,27 +220,21 @@ jobs:
         run: |
           echo -e "Current working directory: $(pwd)"
 
-          # continue_on_error="${{ inputs.continue_on_error || 'false' }}"
-
           # ========== Openwrt make menuconfig ==========
-          Target_System="${{ inputs.Target_System }}"
-          Subtarget="${{ inputs.Subtarget }}"
-          Target_Profile="${{ inputs.Target_Profile }}"
+          Target_System="${{ matrix.workflows_inputs.Target_System }}"
+          Subtarget="${{ matrix.workflows_inputs.Subtarget }}"
+          Target_Profile="${{ matrix.workflows_inputs.Target_Profile }}"
           if [[ -z "$Target_Profile" ]]; then
             Target_Profile="$Subtarget"
           fi
 
-          # ========== Set source repo branch (sanitize URL) ==========
-          SOURCE_REPO_IN="${{ inputs.source_repo }}"
-          SOURCE_BRANCH="${{ inputs.source_branch }}"
-
-          if [[ "${SOURCE_REPO_IN}" =~ ^https?:// ]]; then
-            REPO_target="${SOURCE_REPO_IN}"
+          # ========== Set OpenWrt repo branch (sanitize URL) ==========
+          _repo_in="${{ matrix.openwrt_repo }}"
+          if [[ "${_repo_in}" =~ ^https?:// ]]; then
+            REPO_target="${_repo_in}"
           else
-            REPO_target="https://${SOURCE_REPO_IN}"
+            REPO_target="https://${_repo_in}"
           fi
-          SOURCE_REPO="${REPO_target}"
-          REPO_target_branch="${SOURCE_BRANCH}"
           REPO_self_owner="${{ github.repository_owner }}"
 
           # ===== Align with indocker workspace (/builder) =====
@@ -224,10 +250,6 @@ jobs:
 
           # ========== GITHUB_ENV ==========
           env_vars=(
-            "SOURCE_REPO"
-            "SOURCE_BRANCH"
-            "REPO_target"
-            "REPO_target_branch"
             "REPO_self_owner"
             "Target_System"
             "Subtarget"
@@ -516,6 +538,7 @@ jobs:
 
           # 记录Clone源码的分支和构建者、编译完成时间
           # record_to_markdown "Build ${Target_Profile} - by ${REPO_self_owner}" ""
+          # record_to_markdown "OpenWrt branch" "- [${openwrt_branch};${REPO_target_branch}](${REPO_target}/tree/${REPO_target_branch})"
           record_to_markdown "Target" "- [x] ${Target_System} - ${Subtarget} - ${Target_Profile}"
           record_to_markdown "Timestamp" "- [x] $(date +"%Y-%m-%d %H:%M:%S %z")"
           record_to_markdown "Repository" "- [x] ${REPO_target}"
@@ -552,8 +575,8 @@ jobs:
           timestamp: ${{ steps.output.outputs.timestamp }}
           version_kernel: ${{ steps.version-kernel.outputs.version }}
         with:
-          name: "${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
-          tag: "${{ inputs.source_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
+          name: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
+          tag: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
           artifacts: "${{ env.PATH_output }}/*"
           allowUpdates: true
           removeArtifacts: false
