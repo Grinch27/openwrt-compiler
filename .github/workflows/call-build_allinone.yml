@@ -10,7 +10,7 @@ on:
     branches:
       - main
     paths:
-      - ".github/workflows/call-build_docker.yml"
+      - ".github/workflows/call-build_allinone.yml"
   schedule:
     # UTC Time
     - cron: "0 22 * * *"
