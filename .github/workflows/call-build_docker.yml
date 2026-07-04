@@ -24,16 +24,16 @@ jobs:
     name: ubuntu-latest - runner-image
     runs-on: ubuntu-latest
     outputs:
-      runner_image: ${{ steps.resolve-runner-image.outputs.runner_image }}
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
     steps:
       - name: Resolve runner-image
         id: resolve-runner-image
         uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
 
   toolchain:
-    name: ${{ needs.runner-image.outputs.runner_image }} - ubuntu:devel - toolchain
+    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - ubuntu:devel - toolchain
     needs: runner-image
-    runs-on: ${{ needs.runner-image.outputs.runner_image }}
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     permissions: write-all
     defaults:
       run:
@@ -77,7 +77,7 @@ jobs:
   heads:
     name: Heads of ${{ matrix.repo_target }}
     needs: runner-image
-    runs-on: ${{ needs.runner-image.outputs.runner_image }}
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     permissions: write-all
     defaults:
       run:
@@ -156,9 +156,9 @@ jobs:
         #       Subtarget: "x86_64"
         #       Target_Profile: ""
     with:
-      # Base
-      runner_image: ${{ needs.runner-image.outputs.runner_image }}
-      # OpenWrt
+      # ========== Base ==========
+      RUNNER_IMAGE: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
+      # ========== OpenWrt ==========
       OpenWrt_Repository: ${{ matrix.openwrt_repo }}
       OpenWrt_Branch: ${{ matrix.openwrt_branch }}
       Target_System: ${{ matrix.workflows_inputs.Target_System }}

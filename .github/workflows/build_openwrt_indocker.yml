@@ -1,11 +1,21 @@
 name: (Docker) Build OpenWrt
 
-permissions: write-all
-
 on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
+      # ========== Base ==========
+      RUNNER_IMAGE:
+        description: "Runner Image"
+        type: string
+        required: false
+        default: "ubuntu-26.04"
+      custom_env:
+        description: "key=value;key=value"
+        type: string
+        required: false
+        default: ""
+      # ========== OpenWrt ==========
       OpenWrt_Repository:
         description: "OpenWrt Repository"
         required: true
@@ -39,18 +49,18 @@ on:
         required: false
         default: ""
         type: string
+  workflow_call:
+    inputs:
+      # ========== Base ==========
+      RUNNER_IMAGE:
+        description: "Runner Image"
+        required: false
+        type: string
       custom_env:
         description: "key=value;key=value"
         type: string
         required: false
-        default: ""
-      runner_image:
-        description: "Runner Image"
-        type: string
-        required: false
-        default: "ubuntu-26.04"
-  workflow_call:
-    inputs:
+      # ========== OpenWrt ==========
       OpenWrt_Repository:
         description: "OpenWrt Repository URL"
         required: true
@@ -71,16 +81,10 @@ on:
         description: "Target Profile"
         required: false
         type: string
-      custom_env:
-        description: "key=value;key=value"
-        type: string
-        required: false
-      runner_image:
-        description: "Runner Image"
-        required: false
-        type: string
 
 run-name: ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+
+permissions: write-all
 
 env:
   custom_env: ${{ inputs.custom_env || '' }}
@@ -90,16 +94,16 @@ jobs:
     name: ubuntu-latest - runner-image
     runs-on: ubuntu-latest
     outputs:
-      runner_image: ${{ steps.resolve-runner-image.outputs.runner_image }}
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
     steps:
       - name: Resolve runner-image
         id: resolve-runner-image
         uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
 
   toolchain:
-    name: ${{ needs.runner-image.outputs.runner_image }} - ubuntu:devel - toolchain
+    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - ubuntu:devel - toolchain
     needs: runner-image
-    runs-on: ${{ needs.runner-image.outputs.runner_image }}
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     outputs:
       gcc_version: ${{ steps.resolve-toolchain.outputs.gcc_version }}
       clang_version: ${{ steps.resolve-toolchain.outputs.clang_version }}
@@ -142,11 +146,11 @@ jobs:
         uses: Grinch27/github-actions/.github/actions/resolve-toolchain-version@main
 
   action:
-    name: ${{ needs.runner-image.outputs.runner_image }} - gcc-${{ needs.toolchain.outputs.gcc_version }} - ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
+    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - gcc-${{ needs.toolchain.outputs.gcc_version }} - ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
     needs:
       - runner-image
       - toolchain
-    runs-on: ${{ needs.runner-image.outputs.runner_image }}
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     permissions: write-all
     defaults:
       run:
