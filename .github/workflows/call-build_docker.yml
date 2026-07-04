@@ -1,25 +1,99 @@
 name: Call Build (Docker)
 
-# https://docs.github.com/zh/actions/writing-workflows/workflow-syntax-for-github-actions
-run-name: Build Matrix for OpenWrt (Docker)
+# Github Actions workflow syntax reference:
+# https://docs.github.com/zh/actions/reference/workflows-and-actions/workflow-syntax
+# https://docs.github.com/zh/actions/reference/workflows-and-actions/metadata-syntax#runs-for-composite-actions
+# https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#yaml-anchors-and-aliases
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/call-build_docker.yml"
   schedule:
     # UTC Time
     - cron: "0 22 * * *"
   repository_dispatch:
   workflow_dispatch:
 
+run-name: Build Matrix for OpenWrt (Docker)
+
 jobs:
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    outputs:
+      runner_image: ${{ steps.resolve-runner-image.outputs.runner_image }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
+  toolchain:
+    name: ${{ needs.runner-image.outputs.runner_image }} - ubuntu:devel - toolchain
+    needs: runner-image
+    runs-on: ${{ needs.runner-image.outputs.runner_image }}
+    permissions: write-all
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: &container_image ubuntu:devel
+      options: &container_options >-
+        --privileged
+        --user=0:0
+        --pid=host
+        --ipc=host
+        --uts=host
+        --cgroupns=host
+        --cap-add=ALL
+        --security-opt apparmor=unconfined
+        --security-opt seccomp=unconfined
+        --init
+        --pids-limit=-1
+        --shm-size=12g
+        --ulimit nofile=1048576:1048576
+      volumes: &container_volumes
+        - /dev:/dev
+        - /sys:/sys:rw
+        - /sys/fs/cgroup:/sys/fs/cgroup:rw
+        - /run/udev:/run/udev:ro
+        - /lib/modules:/lib/modules:ro
+        - /var/run/docker.sock:/var/run/docker.sock
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      FORCE_UNSAFE_CONFIGURE: "1"
+    outputs:
+      gcc_version: ${{ steps.resolve-toolchain.outputs.gcc_version }}
+      clang_version: ${{ steps.resolve-toolchain.outputs.clang_version }}
+      jdk_version: ${{ steps.resolve-toolchain.outputs.jdk_version }}
+      custom_env: ${{ steps.resolve-toolchain.outputs.custom_env }}
+    steps:
+      - name: Resolve toolchain versions
+        id: resolve-toolchain
+        uses: Grinch27/github-actions/.github/actions/resolve-toolchain-version@main
+
   heads:
     name: Heads of ${{ matrix.repo_target }}
-    runs-on: ${{ matrix.runner_image || 'ubuntu-26.04' }}
+    needs: runner-image
+    runs-on: ${{ needs.runner-image.outputs.runner_image }}
+    permissions: write-all
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: *container_image
+      options: *container_options
+      volumes: *container_volumes
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      FORCE_UNSAFE_CONFIGURE: "1"
     outputs:
       latest_branch: ${{ steps.find_latest.outputs.latest_branch }}
     strategy:
       fail-fast: false
       matrix:
-        runner_image: ["ubuntu-26.04"]
         repo_target: ["https://github.com/openwrt/openwrt.git"]
     steps:
       - name: Get the latest openwrt version branch
@@ -30,22 +104,20 @@ jobs:
             | sed 's/.*refs\/heads\/openwrt-//' \
             | sort -V \
             | tail -n1)
-          echo "latest_branch=openwrt-$latest_version" >> $GITHUB_OUTPUT
+          echo "latest_branch=openwrt-$latest_version" | tee -a $GITHUB_OUTPUT
 
-      - name: Check the latest branch
-        id: check
-        run: |
-          echo "The latest branch is: ${{ steps.find_latest.outputs.latest_branch }}"
-
-  openwrt:
+  action:
     name: ${{ matrix.openwrt_branch }}
-    needs: heads
+    needs:
+      - runner-image
+      - toolchain
+      - heads
+    permissions: write-all
     uses: ./.github/workflows/build_openwrt_indocker.yml
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix:
-        runner_image: ["ubuntu-26.04"]
         openwrt_repo: ["https://github.com/openwrt/openwrt.git"]
         openwrt_branch:
           - "main"
@@ -70,7 +142,9 @@ jobs:
         #       Subtarget: "x86_64"
         #       Target_Profile: ""
     with:
-      runner_image: ${{ matrix.runner_image }}
+      # Base
+      runner_image: ${{ needs.runner-image.outputs.runner_image }}
+      # OpenWrt
       OpenWrt_Repository: ${{ matrix.openwrt_repo }}
       OpenWrt_Branch: ${{ matrix.openwrt_branch }}
       Target_System: ${{ matrix.workflows_inputs.Target_System }}
