@@ -89,7 +89,7 @@ jobs:
         uses: Grinch27/github-actions/.github/actions/resolve-toolchain-version@main
 
   heads:
-    name: Heads of ${{ matrix.repo_target }}
+    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - Heads - ${{ matrix.repo_target }}
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     outputs:
