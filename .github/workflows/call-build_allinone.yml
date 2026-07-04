@@ -107,7 +107,7 @@ jobs:
             | sed 's/.*refs\/heads\/openwrt-//' \
             | sort -V \
             | tail -n1)
-          echo "repo_branch=openwrt-$repo_head" | tee -a $GITHUB_OUTPUT
+          echo "repo_branch=openwrt-$repo_head" | tee -a "${GITHUB_OUTPUT}"
 
   action:
     name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - gcc-${{ needs.toolchain.outputs.gcc_version }} - ${{ matrix.openwrt_branch }} - ${{ matrix.workflows_inputs.Target_System }} - ${{ matrix.workflows_inputs.Subtarget }} - ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
@@ -157,7 +157,7 @@ jobs:
       # PATH_patches: "/builder/target/patches"
     strategy:
       fail-fast: false
-      # max-parallel: 3
+      max-parallel: 3
       matrix:
         openwrt_repo: ["https://github.com/openwrt/openwrt.git"]
         openwrt_branch:
@@ -205,9 +205,9 @@ jobs:
           echo -e "Current working directory: $(pwd)"
 
           if [[ "${{ matrix.workflows_inputs.Target_System }}" == "MediaTek_Ralink_ARM" ]]; then
-            echo "gcc_aarch64=true" | tee -a $GITHUB_ENV
+            echo "gcc_aarch64=true" | tee -a "${GITHUB_ENV}"
           else
-            echo "gcc_aarch64=false" | tee -a $GITHUB_ENV
+            echo "gcc_aarch64=false" | tee -a "${GITHUB_ENV}"
           fi
 
           echo "gcc_cross: ${{ env.gcc_aarch64 }}"
@@ -260,7 +260,7 @@ jobs:
             "PATH_patches"
           )
           for var in "${env_vars[@]}"; do
-            echo "${var}=${!var}" | tee -a "$GITHUB_ENV"
+            echo "${var}=${!var}" | tee -a "${GITHUB_ENV}"
           done
 
       # ========== General Environment Setup: Start ==========
@@ -466,7 +466,7 @@ jobs:
           echo "复制 ${PATH_target}/.config 到: ${PATH_output}/config"
           cp -f ${PATH_target}/.config ${PATH_output}/config
 
-          echo -e "timestamp=$(date +"%y%mw%V")" >> ${GITHUB_OUTPUT}
+          echo -e "timestamp=$(date +"%y%mw%V")" >> "${GITHUB_OUTPUT}"
 
       - name: Version of the kernel
         id: version-kernel
@@ -489,7 +489,7 @@ jobs:
               Version_Kernel="${BASH_REMATCH[1]}"
 
               echo "Kernel version: ${Version_Kernel}"
-              echo "version=${Version_Kernel}" | tee -a $GITHUB_OUTPUT
+              echo "version=${Version_Kernel}" | tee -a "${GITHUB_OUTPUT}"
             else
               echo "Kernel version pattern not found in filename."
             fi
