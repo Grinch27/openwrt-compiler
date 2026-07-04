@@ -19,10 +19,31 @@ on:
 
 run-name: Build Matrix for OpenWrt (Docker)
 
+permissions: write-all
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  DEBCONF_NONINTERACTIVE_SEEN: "true"
+  APT_LISTCHANGES_FRONTEND: none
+  NEEDRESTART_MODE: a
+  FORCE_UNSAFE_CONFIGURE: "1"
+  TZ: Etc/UTC
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+  # Git
+  GIT_TERMINAL_PROMPT: "0"
+  # Docker/BuildKit
+  DOCKER_BUILDKIT: "1"
+  COMPOSE_DOCKER_CLI_BUILD: "1"
+
 jobs:
   runner-image:
     name: ubuntu-latest - runner-image
-    runs-on: ubuntu-latest
+    runs-on: &step_image ubuntu-latest
     outputs:
       RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
     steps:
@@ -34,10 +55,6 @@ jobs:
     name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - ubuntu:devel - toolchain
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
-    permissions: write-all
-    defaults:
-      run:
-        shell: bash
     container:
       image: &container_image ubuntu:devel
       options: &container_options >-
@@ -61,9 +78,6 @@ jobs:
         - /run/udev:/run/udev:ro
         - /lib/modules:/lib/modules:ro
         - /var/run/docker.sock:/var/run/docker.sock
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      FORCE_UNSAFE_CONFIGURE: "1"
     outputs:
       gcc_version: ${{ steps.resolve-toolchain.outputs.gcc_version }}
       clang_version: ${{ steps.resolve-toolchain.outputs.clang_version }}
@@ -78,17 +92,6 @@ jobs:
     name: Heads of ${{ matrix.repo_target }}
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
-    permissions: write-all
-    defaults:
-      run:
-        shell: bash
-    container:
-      image: *container_image
-      options: *container_options
-      volumes: *container_volumes
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      FORCE_UNSAFE_CONFIGURE: "1"
     outputs:
       repo_branch: ${{ steps.git-heads.outputs.repo_branch }}
     strategy:
@@ -96,20 +99,6 @@ jobs:
       matrix:
         repo_target: ["https://github.com/openwrt/openwrt.git"]
     steps:
-      - name: git Ensure
-        id: git-install
-        run: |
-          set -euo pipefail
-          command -v git >/dev/null 2>&1 && git --version && exit 0
-          if [[ "$(id -u)" -eq 0 ]]; then
-            apt-get update
-            env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
-          else
-            sudo apt-get update
-            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates
-          fi
-          git --version
-
       - name: Get the latest openwrt version branch
         id: git-heads
         run: |
@@ -127,17 +116,11 @@ jobs:
       - toolchain
       - heads
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
-    permissions: write-all
-    defaults:
-      run:
-        shell: bash
     container:
       image: *container_image
       options: *container_options
       volumes: *container_volumes
     env:
-      DEBIAN_FRONTEND: noninteractive
-      FORCE_UNSAFE_CONFIGURE: "1"
       # ========= Toolchain Environment Variables ==========
       # ----- gcc -----
       gcc_purge: false
@@ -358,8 +341,6 @@ jobs:
       - name: (.config) Load custom configuration
         id: config-custom
         working-directory: ${{ env.PATH_target }}
-        env:
-          DEBIAN_FRONTEND: noninteractive
         run: |
           echo -e "Current working directory: $(pwd)"
 
