@@ -12,8 +12,8 @@ on:
     paths:
       - ".github/workflows/call-build_allinone.yml"
   schedule:
-    - cron: "0 5 * * *"
-      timezone: "Asia/Shanghai"
+    - cron: "0 21 * * *"
+      timezone: "Etc/UTC"
   repository_dispatch:
   workflow_dispatch:
 
@@ -35,8 +35,8 @@ env:
   APT_LISTCHANGES_FRONTEND: none
   NEEDRESTART_MODE: a
   FORCE_UNSAFE_CONFIGURE: "1"
-  # TZ: Etc/UTC
-  TZ: Asia/Shanghai
+  TZ: Etc/UTC
+  DISPLAY_TZ: Etc/UTC
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
   # Git
