@@ -157,7 +157,7 @@ jobs:
       # PATH_patches: "/builder/target/patches"
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 6
       matrix:
         openwrt_repo: ["https://github.com/openwrt/openwrt.git"]
         openwrt_branch: ["main", "${{ needs.heads.outputs.repo_branch }}"]
@@ -178,9 +178,9 @@ jobs:
               openwrt_branch: "main",
               workflows_inputs:
                 {
-                  Target_System: "x86",
-                  Subtarget: "x86_64",
-                  Target_Profile: "",
+                  Target_System: "MediaTek_Ralink_ARM",
+                  Subtarget: "MT798x",
+                  Target_Profile: "MT798x_docker",
                 },
             }
           - {
@@ -188,9 +188,9 @@ jobs:
               openwrt_branch: "main",
               workflows_inputs:
                 {
-                  Target_System: "MediaTek_Ralink_ARM",
-                  Subtarget: "MT798x",
-                  Target_Profile: "MT798x_docker",
+                  Target_System: "x86",
+                  Subtarget: "x86_64",
+                  Target_Profile: "",
                 },
             }
           - {
