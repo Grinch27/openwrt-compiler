@@ -12,12 +12,16 @@ on:
     paths:
       - ".github/workflows/call-build_allinone.yml"
   schedule:
-    # UTC Time
-    - cron: "0 22 * * *"
+    - cron: "0 5 * * *"
+      timezone: "Asia/Shanghai"
   repository_dispatch:
   workflow_dispatch:
 
-run-name: Build Matrix for OpenWrt (Docker)
+# run-name: Build Matrix for OpenWrt (Docker)
+run-name: >-
+  Compile Docker -
+  ${{ github.event_name }} -
+  ${{ github.ref_name }}
 
 permissions: write-all
 
@@ -31,7 +35,8 @@ env:
   APT_LISTCHANGES_FRONTEND: none
   NEEDRESTART_MODE: a
   FORCE_UNSAFE_CONFIGURE: "1"
-  TZ: Etc/UTC
+  # TZ: Etc/UTC
+  TZ: Asia/Shanghai
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
   # Git
@@ -110,7 +115,13 @@ jobs:
           echo "repo_branch=openwrt-$repo_head" | tee -a "${GITHUB_OUTPUT}"
 
   action:
-    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - gcc-${{ needs.toolchain.outputs.gcc_version }} - ${{ matrix.openwrt_branch }} - ${{ matrix.workflows_inputs.Target_System }} - ${{ matrix.workflows_inputs.Subtarget }} - ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
+    name: >-
+      ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
+      gcc-${{ needs.toolchain.outputs.gcc_version }} -
+      ${{ matrix.openwrt_branch }} -
+      ${{ matrix.workflows_inputs.Target_System }} -
+      ${{ matrix.workflows_inputs.Subtarget }} -
+      ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
     needs:
       - runner-image
       - toolchain
