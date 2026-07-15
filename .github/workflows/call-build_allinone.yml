@@ -174,6 +174,7 @@ jobs:
             }
         include:
           - {
+              openwrt_repo: "https://github.com/openwrt/openwrt.git",
               openwrt_branch: "main",
               workflows_inputs:
                 {
@@ -183,6 +184,7 @@ jobs:
                 },
             }
           - {
+              openwrt_repo: "https://github.com/openwrt/openwrt.git",
               openwrt_branch: "main",
               workflows_inputs:
                 {
