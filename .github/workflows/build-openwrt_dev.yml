@@ -42,7 +42,7 @@ on:
         description: "Runner Image"
         type: string
         required: false
-        default: "ubuntu-26.04"
+        default: ""
   workflow_call:
     inputs:
       OpenWrt_Repository:
@@ -73,9 +73,22 @@ on:
 run-name: Openwrt - ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
 
 jobs:
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
   build:
     name: Openwrt - ${{ inputs.OpenWrt_Branch }} - ${{ inputs.Target_System }} - ${{ inputs.Subtarget }} - ${{ inputs.Target_Profile || inputs.Subtarget }}
-    runs-on: ${{ inputs.runner_image || 'ubuntu-26.04' }}
+    needs: runner-image
+    runs-on: ${{ inputs.runner_image || needs.runner-image.outputs.RUNNER_IMAGE }}
     env:
       DEBIAN_FRONTEND: noninteractive
       # ----- gcc -----
