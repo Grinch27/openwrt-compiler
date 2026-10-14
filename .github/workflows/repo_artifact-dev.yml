@@ -8,7 +8,7 @@ on:
         description: "Runner Image"
         type: string
         required: false
-        default: "ubuntu-26.04"
+        default: ""
       Target_Repository:
         description: "Target Repository"
         required: true
@@ -29,7 +29,7 @@ on:
       runner_image:
         description: "Runner Image"
         type: string
-        required: true
+        required: false
       Target_Repository:
         description: "Target Repository"
         required: true
@@ -49,9 +49,22 @@ env:
   custom_env: ${{ inputs.custom_env || '' }}
 
 jobs:
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
   build:
     name: ${{ inputs.Target_Repository }} - ${{ inputs.Target_Branch }}
-    runs-on: ${{ inputs.runner_image || 'ubuntu-26.04' }}
+    needs: runner-image
+    runs-on: ${{ inputs.runner_image || needs.runner-image.outputs.RUNNER_IMAGE }}
     env:
       DEBIAN_FRONTEND: noninteractive
       path_build: "/build"
