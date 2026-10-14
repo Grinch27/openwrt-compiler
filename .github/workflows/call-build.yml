@@ -11,15 +11,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  runner-image:
+    name: ubuntu-latest - runner-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
+    steps:
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+
   heads:
     name: Heads of ${{ matrix.repo_target }}
-    runs-on: ${{ matrix.runner_image || 'ubuntu-26.04' }}
+    needs: runner-image
+    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     outputs:
       latest_branch: ${{ steps.find_latest.outputs.latest_branch }}
     strategy:
       fail-fast: false
       matrix:
-        runner_image: ["ubuntu-26.04"]
         repo_target: ["https://git.openwrt.org/openwrt/openwrt.git"]
     steps:
       - name: Get the latest openwrt version branch
@@ -39,13 +51,14 @@ jobs:
 
   openwrt:
     name: ${{ matrix.openwrt_branch }}
-    needs: heads
+    needs:
+      - runner-image
+      - heads
     uses: ./.github/workflows/build-openwrt.yml
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix:
-        runner_image: ["ubuntu-26.04"]
         openwrt_repo: ["git.openwrt.org/openwrt/openwrt.git"]
         openwrt_branch:
           - "main"
@@ -67,7 +80,7 @@ jobs:
         #       Subtarget: "x86_64"
         #       Target_Profile: ""
     with:
-      runner_image: ${{ matrix.runner_image }}
+      runner_image: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
       OpenWrt_Repository: ${{ matrix.openwrt_repo }}
       OpenWrt_Branch: ${{ matrix.openwrt_branch }}
       Target_System: ${{ matrix.workflows_inputs.Target_System }}
