@@ -11,6 +11,7 @@ on:
       - main
     paths:
       - ".github/workflows/call-build_allinone.yml"
+      - "MediaTek_Ralink_ARM/MT798x/nokia_ea0326gmp/**"
   schedule:
     - cron: &cron_everyday "0 21 * * *"
       timezone: "Etc/UTC"
@@ -108,6 +109,7 @@ jobs:
       repo_branch: ${{ steps.git-heads.outputs.repo_branch }}
       cron_everyday: ${{ env.cron_everyday }}
       cron_sunday: ${{ env.cron_sunday }}
+      build_matrix: ${{ steps.build-matrix.outputs.build_matrix }}
     strategy:
       fail-fast: false
       matrix:
@@ -122,6 +124,53 @@ jobs:
             | sort -V \
             | tail -n1)
           echo "repo_branch=openwrt-$repo_head" | tee -a "${GITHUB_OUTPUT}"
+
+      - name: Resolve build level and matrix
+        id: build-matrix
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          STABLE_BRANCH: ${{ steps.git-heads.outputs.repo_branch }}
+        run: |
+          set -euo pipefail
+
+          case "$GITHUB_EVENT_NAME" in
+            schedule)
+              case "$EVENT_SCHEDULE" in
+                "$cron_everyday") level=L1 ;;
+                "$cron_sunday") level=L2 ;;
+                *) echo 'Unknown schedule' >&2; exit 1 ;;
+              esac
+              ;;
+            push|workflow_dispatch|repository_dispatch) level=L3 ;;
+            *) echo 'Unsupported trigger' >&2; exit 1 ;;
+          esac
+
+          if [[ "$level" == L2 && ! "$STABLE_BRANCH" =~ ^openwrt-[0-9]+\.[0-9]+$ ]]; then
+            echo 'Invalid stable branch' >&2
+            exit 1
+          fi
+
+          matrix=$(jq -cn --arg level "$level" --arg stable "$STABLE_BRANCH" '
+            def job($branch; $system; $subtarget; $profile): {
+              build_level: $level,
+              openwrt_repo: "https://github.com/openwrt/openwrt.git",
+              openwrt_branch: $branch,
+              workflows_inputs: {
+                Target_System: $system,
+                Subtarget: $subtarget,
+                Target_Profile: $profile
+              }
+            };
+            if $level == "L1" then [
+              job("main"; "MediaTek_Ralink_ARM"; "MT798x"; "")
+            ] elif $level == "L2" then [
+              job($stable; "MediaTek_Ralink_ARM"; "MT798x"; ""),
+              job("main"; "x86"; "x86_64"; ""),
+              job("main"; "MediaTek_Ralink_MIPS"; "MT7621"; "")
+            ] else [
+              job("main"; "MediaTek_Ralink_ARM"; "MT798x"; "nokia_ea0326gmp")
+            ] end')
+          printf 'build_matrix=%s\n' "$matrix" | tee -a "$GITHUB_OUTPUT"
 
   action:
     if: >-
@@ -185,44 +234,8 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix:
-        openwrt_repo: ["https://github.com/openwrt/openwrt.git"]
-        openwrt_branch: >-
-          ${{
-            fromJSON(
-              github.event_name == 'schedule' &&
-              github.event.schedule == needs.heads.outputs.cron_sunday &&
-              format('["{0}"]', needs.heads.outputs.repo_branch) ||
-              '["main"]'
-            )
-          }}
-        workflows_inputs:
-          - {
-              Target_System: "MediaTek_Ralink_ARM",
-              Subtarget: "MT798x",
-              Target_Profile: "",
-            }
-          - {
-              Target_System: "MediaTek_Ralink_MIPS",
-              Subtarget: "MT7621",
-              Target_Profile: "",
-            }
-          - {
-              Target_System: "x86",
-              Subtarget: "x86_64",
-              Target_Profile: "",
-            }
-        exclude:
-          - openwrt_branch: "${{ needs.heads.outputs.repo_branch }}"
-            workflows_inputs:
-              Target_System: "MediaTek_Ralink_MIPS"
-              Subtarget: "MT7621"
-              Target_Profile: ""
-          - openwrt_branch: "${{ needs.heads.outputs.repo_branch }}"
-            workflows_inputs:
-              Target_System: "x86"
-              Subtarget: "x86_64"
-              Target_Profile: ""
-        # include:
+        include: ${{ fromJSON(needs.heads.outputs.build_matrix) }}
+        # Disabled build targets (not included in the level matrix):
           # - {
           #     openwrt_repo: "https://github.com/openwrt/openwrt.git",
           #     openwrt_branch: "main",
@@ -465,6 +478,20 @@ jobs:
           set -e
           cat ./.config
 
+      - name: Verify Nokia single-device configuration
+        if: ${{ matrix.build_level == 'L3' }}
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          make defconfig
+          grep -Fxq 'CONFIG_TARGET_mediatek=y' .config
+          grep -Fxq 'CONFIG_TARGET_mediatek_filogic=y' .config
+          grep -Fxq 'CONFIG_TARGET_mediatek_filogic_DEVICE_nokia_ea0326gmp=y' .config
+          grep -Fxq 'CONFIG_TARGET_PROFILE="DEVICE_nokia_ea0326gmp"' .config
+          if grep -Eq '^CONFIG_TARGET_(MULTI_PROFILE|ALL_PROFILES|PER_DEVICE_ROOTFS)=y$' .config; then
+            echo 'Unexpected multi-device configuration' >&2
+            exit 1
+          fi
+
       - name: Clean & Rebuild host tools
         id: make-clean
         # if: ${{ 'true' == 'false' }} # disable
@@ -504,6 +531,17 @@ jobs:
           #   make -j$(($(nproc) + 1)) V=s
           # fi
           make -j$(($(nproc) + 1)) V=s
+
+      - name: Verify Nokia firmware image
+        if: ${{ matrix.build_level == 'L3' }}
+        working-directory: ${{ env.PATH_target }}
+        run: |
+          image=$(find bin/targets/mediatek/filogic -maxdepth 1 -type f -name '*nokia_ea0326gmp*sysupgrade.itb' -print -quit)
+          if [[ -z "$image" || ! -s "$image" ]]; then
+            echo 'Nokia sysupgrade image not found' >&2
+            exit 1
+          fi
+          ls -lh "$image"
 
       - name: Copy to output
         id: output
@@ -622,6 +660,7 @@ jobs:
 
       - name: Upload OpenWrt to Release
         id: release
+        if: ${{ matrix.build_level != 'L3' }}
         uses: ncipollo/release-action@main
         env:
           timestamp: ${{ steps.output.outputs.timestamp }}
