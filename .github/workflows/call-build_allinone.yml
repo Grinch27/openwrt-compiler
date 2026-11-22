@@ -18,19 +18,8 @@ on:
     # Sunday daily slot + 3 hours (Monday 00:00 UTC)
     - cron: &cron_sunday "0 0 * * 1"
       timezone: "Etc/UTC"
-  repository_dispatch:
   workflow_dispatch:
     inputs:
-      build_level:
-        description: "Build tier (Custom: separate Release; trusted sources only)"
-        type: choice
-        required: true
-        default: "Tier 3"
-        options:
-          - "Tier 1"
-          - "Tier 2"
-          - "Tier 3"
-          - Custom
       OpenWrt_Repository:
         description: "Custom only: repository (HTTPS or host/path)"
         type: string
@@ -70,38 +59,6 @@ on:
         type: string
         required: false
         default: ""
-  workflow_call:
-    inputs:
-      # ========== Base ==========
-      RUNNER_IMAGE:
-        description: "Runner Image"
-        required: false
-        type: string
-      custom_env:
-        description: "key=value;key=value"
-        type: string
-        required: false
-      # ========== OpenWrt ==========
-      OpenWrt_Repository:
-        description: "OpenWrt Repository URL"
-        required: true
-        type: string
-      OpenWrt_Branch:
-        description: "OpenWrt Branch Name"
-        required: true
-        type: string
-      Target_System:
-        description: "Target System"
-        required: true
-        type: string
-      Subtarget:
-        description: "Subtarget"
-        required: true
-        type: string
-      Target_Profile:
-        description: "Target Profile"
-        required: false
-        type: string
 
 # run-name: Build Matrix for OpenWrt (Docker)
 run-name: >-
@@ -211,10 +168,7 @@ jobs:
         id: build-matrix
         env:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
-          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
-          CURRENT_WORKFLOW_REF: ${{ job.workflow_ref }}
           STABLE_BRANCH: ${{ steps.git-heads.outputs.repo_branch }}
-          REQUESTED_LEVEL: ${{ inputs.build_level }}
           CUSTOM_REPO: ${{ inputs.OpenWrt_Repository }}
           CUSTOM_BRANCH: ${{ inputs.OpenWrt_Branch }}
           CUSTOM_SYSTEM: ${{ inputs.Target_System }}
@@ -224,30 +178,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          [[ -n "$CALLER_WORKFLOW_REF" && -n "$CURRENT_WORKFLOW_REF" ]] || { echo 'Missing workflow identity' >&2; exit 1; }
-          reusable_call=false
-          if [[ "$CURRENT_WORKFLOW_REF" != "$CALLER_WORKFLOW_REF" || "$GITHUB_EVENT_NAME" == workflow_call ]]; then
-            reusable_call=true
-            level=Custom
-          else
-            case "$GITHUB_EVENT_NAME" in
-              schedule)
-                case "$EVENT_SCHEDULE" in
-                  "$cron_everyday") level="Tier 1" ;;
-                  "$cron_sunday") level="Tier 2" ;;
-                  *) echo 'Unknown schedule' >&2; exit 1 ;;
-                esac
-                ;;
-              workflow_dispatch)
-                case "$REQUESTED_LEVEL" in
-                  "Tier 1"|"Tier 2"|"Tier 3"|Custom) level="$REQUESTED_LEVEL" ;;
-                  *) echo 'Invalid build tier' >&2; exit 1 ;;
-                esac
-                ;;
-              push|repository_dispatch) level="Tier 3" ;;
-              *) echo 'Unsupported trigger' >&2; exit 1 ;;
-            esac
-          fi
+          # Keep scheduled/push tiers separate from parameterized manual builds.
+          # Reject unknown events or cron strings rather than expanding a default matrix.
+          case "$GITHUB_EVENT_NAME" in
+            schedule)
+              case "$EVENT_SCHEDULE" in
+                "$cron_everyday") level="Tier 1" ;;
+                "$cron_sunday") level="Tier 2" ;;
+                *) echo 'Unknown schedule' >&2; exit 1 ;;
+              esac
+              ;;
+            push) level="Tier 3" ;;
+            workflow_dispatch) level=Custom ;;
+            *) echo 'Unsupported trigger' >&2; exit 1 ;;
+          esac
 
           custom_env=""
           if [[ "$level" == Custom ]]; then
@@ -281,7 +225,7 @@ jobs:
             fi
           fi
 
-          matrix=$(jq -cen --arg level "$level" --arg stable "$STABLE_BRANCH" --argjson reusable_call "$reusable_call" \
+          matrix=$(jq -cen --arg level "$level" --arg stable "$STABLE_BRANCH" \
             --arg repo "$CUSTOM_REPO" --arg branch "$CUSTOM_BRANCH" \
             --arg system "$CUSTOM_SYSTEM" --arg subtarget "$CUSTOM_SUBTARGET" \
             --arg profile "$CUSTOM_PROFILE" --arg custom_env "$custom_env" '
@@ -318,7 +262,7 @@ jobs:
                   if ($stable | test("^openwrt-[0-9]+\\.[0-9]+$")) then .openwrt_branch = $stable
                   else error("Invalid stable branch") end
                 else . end
-                | . + {build_level: $level, custom_env: $custom_env, reusable_call: $reusable_call}
+                | . + {build_level: $level, custom_env: $custom_env}
               )')
           printf 'build_matrix=%s\n' "$matrix" | tee -a "$GITHUB_OUTPUT"
 
@@ -819,7 +763,7 @@ jobs:
           version_kernel: ${{ steps.version-kernel.outputs.version }}
         with:
           name: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
-          tag: "${{ matrix.build_level == 'Custom' && (matrix.reusable_call && format('custom-{0}-{1}-{2}', github.run_id, github.run_attempt, job.check_run_id) || format('custom-{0}-{1}', github.run_id, github.run_attempt)) || format('{0}+{1}+{2}', matrix.openwrt_branch, env.version_kernel, env.Target_Profile) }}"
+          tag: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
           artifacts: "${{ env.PATH_output }}/*"
           allowUpdates: true
           removeArtifacts: false

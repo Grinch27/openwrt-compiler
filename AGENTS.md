@@ -529,8 +529,12 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 当前已确认的参考入口：
 
 - Non-container：`.github/workflows/build-openwrt.yml`。
-- Container：`.github/workflows/build_openwrt_indocker.yml`。
-- Container 编排：`.github/workflows/call-build_allinone.yml`。
+- Container 正式入口：`.github/workflows/call-build_allinone.yml`，仅支持固定 Tier 自动调度和 Custom 手动构建。
+- Container 历史独立入口：`.github/workflows/build_openwrt_indocker.yml`，保留至 Custom 实际编译和发布验收通过后，按授权归档。
+
+正式入口只保留 `schedule`、`push`、`workflow_dispatch`。`cron_everyday` 对应 Tier 1，`cron_sunday` 对应 Tier 2，匹配路径的 main push 对应 Tier 3；`workflow_dispatch` 只允许 Custom 参数化构建，不提供 Tier 选择器。不得为正式入口重新引入 `workflow_call` 或 `repository_dispatch`，除非获得新的明确授权。
+
+Tier 与 Custom 采用统一 Release Name（branch+kernel+Target_System+Subtarget+Target_Profile）和 Git Tag（branch+kernel+Target_Profile）。同 Tag 更新既有 Release，Custom 可能覆盖同名正式构建附件，须使用可信源码及明确的目标配置。
 
 其他现存工作流是否属于正式构建、开发测试、可复用调用或辅助任务，必须逐文件审查；不能根据文件名推断用途或擅自删除。
 
