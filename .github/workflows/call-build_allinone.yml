@@ -185,17 +185,23 @@ jobs:
               Subtarget: "MT7621",
               Target_Profile: "",
             }
+        exclude:
+          - openwrt_branch: "${{ needs.heads.outputs.repo_branch }}"
+            workflows_inputs:
+              Target_System: "MediaTek_Ralink_MIPS"
+              Subtarget: "MT7621"
+              Target_Profile: ""
         include:
-          - {
-              openwrt_repo: "https://github.com/openwrt/openwrt.git",
-              openwrt_branch: "main",
-              workflows_inputs:
-                {
-                  Target_System: "MediaTek_Ralink_ARM",
-                  Subtarget: "MT798x",
-                  Target_Profile: "MT798x_docker",
-                },
-            }
+          # - {
+          #     openwrt_repo: "https://github.com/openwrt/openwrt.git",
+          #     openwrt_branch: "main",
+          #     workflows_inputs:
+          #       {
+          #         Target_System: "MediaTek_Ralink_ARM",
+          #         Subtarget: "MT798x",
+          #         Target_Profile: "MT798x_docker",
+          #       },
+          #   }
           - {
               openwrt_repo: "https://github.com/openwrt/openwrt.git",
               openwrt_branch: "main",
@@ -206,26 +212,26 @@ jobs:
                   Target_Profile: "",
                 },
             }
-          - {
-              openwrt_repo: "https://github.com/hanwckf/immortalwrt-mt798x.git",
-              openwrt_branch: "openwrt-21.02",
-              workflows_inputs:
-                {
-                  Target_System: "MediaTek_Ralink_ARM",
-                  Subtarget: "MT798x",
-                  Target_Profile: "immortalwrt-mt798x_7981",
-                },
-            }
-          - {
-              openwrt_repo: "https://github.com/hanwckf/immortalwrt-mt798x.git",
-              openwrt_branch: "openwrt-21.02",
-              workflows_inputs:
-                {
-                  Target_System: "MediaTek_Ralink_ARM",
-                  Subtarget: "MT798x",
-                  Target_Profile: "immortalwrt-mt798x_7986",
-                },
-            }
+          # - {
+          #     openwrt_repo: "https://github.com/hanwckf/immortalwrt-mt798x.git",
+          #     openwrt_branch: "openwrt-21.02",
+          #     workflows_inputs:
+          #       {
+          #         Target_System: "MediaTek_Ralink_ARM",
+          #         Subtarget: "MT798x",
+          #         Target_Profile: "immortalwrt-mt798x_7981",
+          #       },
+          #   }
+          # - {
+          #     openwrt_repo: "https://github.com/hanwckf/immortalwrt-mt798x.git",
+          #     openwrt_branch: "openwrt-21.02",
+          #     workflows_inputs:
+          #       {
+          #         Target_System: "MediaTek_Ralink_ARM",
+          #         Subtarget: "MT798x",
+          #         Target_Profile: "immortalwrt-mt798x_7986",
+          #       },
+          #   }
     steps:
       # ========== Pre: Settings ==========
       - name: (Env) GCC Cross-Compiler
