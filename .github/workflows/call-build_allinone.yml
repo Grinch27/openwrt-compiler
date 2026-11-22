@@ -22,14 +22,54 @@ on:
   workflow_dispatch:
     inputs:
       build_level:
-        description: "Build level (L1: daily, L2: weekly, L3: Nokia)"
+        description: "Build tier (Custom: separate Release; trusted sources only)"
         type: choice
         required: true
-        default: "L3"
+        default: "Tier 3"
         options:
-          - L1
-          - L2
-          - L3
+          - "Tier 1"
+          - "Tier 2"
+          - "Tier 3"
+          - Custom
+      OpenWrt_Repository:
+        description: "Custom only: repository (HTTPS or host/path)"
+        type: string
+        required: false
+        default: "git.openwrt.org/openwrt/openwrt.git"
+      OpenWrt_Branch:
+        description: "Custom only: branch"
+        type: string
+        required: false
+        default: "main"
+      Target_System:
+        description: "Custom only: target system"
+        type: choice
+        required: false
+        default: "x86"
+        options:
+          - x86
+          - MediaTek_Ralink_ARM
+          - MediaTek_Ralink_MIPS
+      Subtarget:
+        description: "Custom only: subtarget"
+        type: choice
+        required: false
+        default: "x86_64"
+        options:
+          - x86_64
+          - MT798x
+          - MT7620
+          - MT7621
+      Target_Profile:
+        description: "Custom only: local profile (empty means Subtarget)"
+        type: string
+        required: false
+        default: ""
+      custom_env:
+        description: "Custom only: toolchain key=value;key=value (no secrets)"
+        type: string
+        required: false
+        default: ""
 
 # run-name: Build Matrix for OpenWrt (Docker)
 run-name: >-
@@ -135,42 +175,77 @@ jobs:
             | tail -n1)
           echo "repo_branch=openwrt-$repo_head" | tee -a "${GITHUB_OUTPUT}"
 
-      - name: Resolve build level and matrix
+      - name: Resolve build tier and matrix
         id: build-matrix
         env:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           STABLE_BRANCH: ${{ steps.git-heads.outputs.repo_branch }}
           REQUESTED_LEVEL: ${{ github.event.inputs.build_level }}
+          CUSTOM_REPO: ${{ github.event.inputs.OpenWrt_Repository }}
+          CUSTOM_BRANCH: ${{ github.event.inputs.OpenWrt_Branch }}
+          CUSTOM_SYSTEM: ${{ github.event.inputs.Target_System }}
+          CUSTOM_SUBTARGET: ${{ github.event.inputs.Subtarget }}
+          CUSTOM_PROFILE: ${{ github.event.inputs.Target_Profile }}
+          CUSTOM_ENV: ${{ github.event.inputs.custom_env }}
         run: |
           set -euo pipefail
 
           case "$GITHUB_EVENT_NAME" in
             schedule)
               case "$EVENT_SCHEDULE" in
-                "$cron_everyday") level=L1 ;;
-                "$cron_sunday") level=L2 ;;
+                "$cron_everyday") level="Tier 1" ;;
+                "$cron_sunday") level="Tier 2" ;;
                 *) echo 'Unknown schedule' >&2; exit 1 ;;
               esac
               ;;
             workflow_dispatch)
               case "$REQUESTED_LEVEL" in
-                L1|L2|L3) level="$REQUESTED_LEVEL" ;;
-                *) echo 'Invalid build level' >&2; exit 1 ;;
+                "Tier 1"|"Tier 2"|"Tier 3"|Custom) level="$REQUESTED_LEVEL" ;;
+                *) echo 'Invalid build tier' >&2; exit 1 ;;
               esac
               ;;
-            push|repository_dispatch) level=L3 ;;
+            push|repository_dispatch) level="Tier 3" ;;
             *) echo 'Unsupported trigger' >&2; exit 1 ;;
           esac
 
-          if [[ "$level" == L2 && ! "$STABLE_BRANCH" =~ ^openwrt-[0-9]+\.[0-9]+$ ]]; then
-            echo 'Invalid stable branch' >&2
-            exit 1
+          custom_env=""
+          if [[ "$level" == Custom ]]; then
+            [[ "$CUSTOM_REPO" =~ ^(https://)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$ ]] || { echo 'Invalid repository URL' >&2; exit 1; }
+            [[ "/${CUSTOM_REPO#https://}/" != *'/../'* && "/${CUSTOM_REPO#https://}/" != *'/./'* ]] || { echo 'Invalid repository path' >&2; exit 1; }
+            CUSTOM_REPO="https://${CUSTOM_REPO#https://}"
+            [[ "$CUSTOM_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$CUSTOM_BRANCH" >/dev/null || { echo 'Invalid branch' >&2; exit 1; }
+            case "$CUSTOM_SYSTEM/$CUSTOM_SUBTARGET" in
+              x86/x86_64|MediaTek_Ralink_ARM/MT798x|MediaTek_Ralink_MIPS/MT7620|MediaTek_Ralink_MIPS/MT7621) ;;
+              *) echo 'Invalid target/subtarget combination' >&2; exit 1 ;;
+            esac
+            [[ -z "$CUSTOM_PROFILE" || "$CUSTOM_PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo 'Invalid profile' >&2; exit 1; }
+            if [[ -n "$CUSTOM_ENV" ]]; then
+              [[ "$CUSTOM_ENV" =~ ^[a-z_]+=[a-z0-9]+(\;[a-z_]+=[a-z0-9]+)*$ ]] || { echo 'Invalid custom_env syntax' >&2; exit 1; }
+              declare -A seen=()
+              IFS=';' read -r -a assignments <<< "$CUSTOM_ENV"
+              for assignment in "${assignments[@]}"; do
+                key=${assignment%%=*}
+                value=${assignment#*=}
+                [[ -z "${seen[$key]+x}" ]] || { echo 'Duplicate custom_env key' >&2; exit 1; }
+                seen[$key]=1
+                case "$key" in
+                  gcc_purge|gcc_install|gcc_switch|clang_purge|clang_install|clang_switch|jdk_purge|jdk_install|jdk_switch|docker_install|qemu_install)
+                    [[ "$value" == true || "$value" == false ]] || { echo 'Invalid boolean' >&2; exit 1; } ;;
+                  gcc_version|clang_version|jdk_version)
+                    [[ "$value" =~ ^[1-9][0-9]{0,2}$ ]] || { echo 'Invalid toolchain version' >&2; exit 1; } ;;
+                  *) echo 'Unsupported custom_env key' >&2; exit 1 ;;
+                esac
+              done
+              custom_env="$CUSTOM_ENV"
+            fi
           fi
 
-          matrix=$(jq -cn --arg level "$level" --arg stable "$STABLE_BRANCH" '
-            def job($branch; $system; $subtarget; $profile): {
-              build_level: $level,
-              openwrt_repo: "https://github.com/openwrt/openwrt.git",
+          matrix=$(jq -cen --arg level "$level" --arg stable "$STABLE_BRANCH" \
+            --arg repo "$CUSTOM_REPO" --arg branch "$CUSTOM_BRANCH" \
+            --arg system "$CUSTOM_SYSTEM" --arg subtarget "$CUSTOM_SUBTARGET" \
+            --arg profile "$CUSTOM_PROFILE" --arg custom_env "$custom_env" '
+            def job($repo; $branch; $system; $subtarget; $profile): {
+              openwrt_repo: $repo,
               openwrt_branch: $branch,
               workflows_inputs: {
                 Target_System: $system,
@@ -178,15 +253,32 @@ jobs:
                 Target_Profile: $profile
               }
             };
-            if $level == "L1" then [
-              job("main"; "MediaTek_Ralink_ARM"; "MT798x"; "")
-            ] elif $level == "L2" then [
-              job($stable; "MediaTek_Ralink_ARM"; "MT798x"; ""),
-              job("main"; "x86"; "x86_64"; ""),
-              job("main"; "MediaTek_Ralink_MIPS"; "MT7621"; "")
-            ] else [
-              job("main"; "MediaTek_Ralink_ARM"; "MT798x"; "nokia_ea0326gmp")
-            ] end')
+            def official($branch; $system; $subtarget; $profile):
+              job("https://github.com/openwrt/openwrt.git"; $branch; $system; $subtarget; $profile);
+            {
+              "Tier 1": [
+                official("main"; "MediaTek_Ralink_ARM"; "MT798x"; "")
+              ],
+              "Tier 2": [
+                official("@stable"; "MediaTek_Ralink_ARM"; "MT798x"; ""),
+                official("main"; "x86"; "x86_64"; ""),
+                official("main"; "MediaTek_Ralink_MIPS"; "MT7621"; "")
+              ],
+              "Tier 3": [
+                official("main"; "MediaTek_Ralink_ARM"; "MT798x"; "nokia_ea0326gmp")
+              ]
+            }
+            | if $level == "Custom" then
+                [job($repo; $branch; $system; $subtarget; $profile)]
+              else .[$level] end
+            | if type != "array" or length == 0 then error("Empty or unknown tier") else . end
+            | map(
+                if .openwrt_branch == "@stable" then
+                  if ($stable | test("^openwrt-[0-9]+\\.[0-9]+$")) then .openwrt_branch = $stable
+                  else error("Invalid stable branch") end
+                else . end
+                | . + {build_level: $level, custom_env: $custom_env}
+              )')
           printf 'build_matrix=%s\n' "$matrix" | tee -a "$GITHUB_OUTPUT"
 
   action:
@@ -213,6 +305,7 @@ jobs:
       options: *container_options
       volumes: *container_volumes
     env:
+      custom_env: ${{ matrix.custom_env }}
       # ========= Toolchain Environment Variables ==========
       # ----- gcc -----
       gcc_purge: false
@@ -390,6 +483,14 @@ jobs:
 
           df -hT ${PWD}
 
+      - name: Verify Custom profile exists
+        if: ${{ matrix.build_level == 'Custom' }}
+        run: |
+          if [[ ! -f "$diy_config" ]]; then
+            echo 'Custom profile configuration not found' >&2
+            exit 1
+          fi
+
       # ========== Compile: Start ==========
       - name: (feeds.conf.default) Load custom feeds
         working-directory: ${{ env.PATH_target }}
@@ -496,7 +597,7 @@ jobs:
           cat ./.config
 
       - name: Verify Nokia single-device configuration
-        if: ${{ matrix.build_level == 'L3' }}
+        if: ${{ matrix.workflows_inputs.Target_Profile == 'nokia_ea0326gmp' }}
         working-directory: ${{ env.PATH_target }}
         run: |
           make defconfig
@@ -550,7 +651,7 @@ jobs:
           make -j$(($(nproc) + 1)) V=s
 
       - name: Verify Nokia firmware image
-        if: ${{ matrix.build_level == 'L3' }}
+        if: ${{ matrix.workflows_inputs.Target_Profile == 'nokia_ea0326gmp' }}
         working-directory: ${{ env.PATH_target }}
         run: |
           image=$(find bin/targets/mediatek/filogic -maxdepth 1 -type f -name '*nokia_ea0326gmp*sysupgrade.itb' -print -quit)
@@ -683,7 +784,7 @@ jobs:
           version_kernel: ${{ steps.version-kernel.outputs.version }}
         with:
           name: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
-          tag: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
+          tag: "${{ matrix.build_level == 'Custom' && format('custom-{0}-{1}', github.run_id, github.run_attempt) || format('{0}+{1}+{2}', matrix.openwrt_branch, env.version_kernel, env.Target_Profile) }}"
           artifacts: "${{ env.PATH_output }}/*"
           allowUpdates: true
           removeArtifacts: false
