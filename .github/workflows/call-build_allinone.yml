@@ -100,11 +100,11 @@ env:
 jobs:
   runner-image:
     name: ubuntu-latest - runner-image
-    runs-on: &step_image ubuntu-latest
+    runs-on: ubuntu-latest
     outputs:
       RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
-      CONTAINER_IMAGE: ${{ env.CONTAINER_IMAGE }}
       CONTAINER_CONFIG: ${{ steps.container-config.outputs.CONTAINER_CONFIG }}
+      build_matrix: ${{ steps.build-matrix.outputs.build_matrix }}
     steps:
       - name: Resolve runner-image
         id: resolve-runner-image
@@ -142,39 +142,11 @@ jobs:
             }')
           printf 'CONTAINER_CONFIG=%s\n' "$config" >> "$GITHUB_OUTPUT"
 
-  toolchain:
-    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - ${{ needs.runner-image.outputs.CONTAINER_IMAGE }} - toolchain
-    needs: runner-image
-    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
-    container: ${{ fromJSON(needs.runner-image.outputs.CONTAINER_CONFIG) }}
-    outputs:
-      gcc_version: ${{ steps.resolve-toolchain.outputs.gcc_version }}
-      clang_version: ${{ steps.resolve-toolchain.outputs.clang_version }}
-      jdk_version: ${{ steps.resolve-toolchain.outputs.jdk_version }}
-      custom_env: ${{ steps.resolve-toolchain.outputs.custom_env }}
-    steps:
-      - name: Resolve toolchain versions
-        id: resolve-toolchain
-        uses: Grinch27/github-actions/.github/actions/resolve-toolchain-version@main
-
-  heads:
-    name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - Heads - ${{ matrix.repo_target }}
-    needs: runner-image
-    runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
-    outputs:
-      repo_branch: ${{ steps.git-heads.outputs.repo_branch }}
-      cron_everyday: ${{ env.cron_everyday }}
-      cron_sunday: ${{ env.cron_sunday }}
-      build_matrix: ${{ steps.build-matrix.outputs.build_matrix }}
-    strategy:
-      fail-fast: false
-      matrix:
-        repo_target: ["https://github.com/openwrt/openwrt.git"]
-    steps:
       - name: Get the latest openwrt version branch
         id: git-heads
+        if: ${{ github.event_name == 'schedule' && github.event.schedule == env.cron_sunday }}
         run: |
-          repo_head=$(git ls-remote --heads ${{ matrix.repo_target }} \
+          repo_head=$(git ls-remote --heads "https://github.com/openwrt/openwrt.git" \
             | grep 'refs/heads/openwrt-[0-9]\+\.[0-9]\+$' \
             | sed 's/.*refs\/heads\/openwrt-//' \
             | sort -V \
@@ -300,10 +272,7 @@ jobs:
       ${{ matrix.workflows_inputs.Target_System }} -
       ${{ matrix.workflows_inputs.Subtarget }} -
       ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
-    needs:
-      - runner-image
-      - toolchain
-      - heads
+    needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     # The runner treats an empty container expression as host execution.
     container: ${{ matrix.use_container && fromJSON(needs.runner-image.outputs.CONTAINER_CONFIG) || '' }}
@@ -347,7 +316,7 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix:
-        include: ${{ fromJSON(needs.heads.outputs.build_matrix) }}
+        include: ${{ fromJSON(needs.runner-image.outputs.build_matrix) }}
         # Disabled build targets (not included in the level matrix):
           # - {
           #     openwrt_repo: "https://github.com/openwrt/openwrt.git",
