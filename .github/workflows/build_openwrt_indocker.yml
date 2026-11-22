@@ -1,7 +1,6 @@
 name: (Docker) Build OpenWrt
 
 on:
-  repository_dispatch:
   workflow_dispatch:
     inputs:
       # ========== Base ==========

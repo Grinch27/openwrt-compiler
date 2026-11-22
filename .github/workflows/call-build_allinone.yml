@@ -20,6 +20,16 @@ on:
       timezone: "Etc/UTC"
   repository_dispatch:
   workflow_dispatch:
+    inputs:
+      build_level:
+        description: "Build level (L1: daily, L2: weekly, L3: Nokia)"
+        type: choice
+        required: true
+        default: "L3"
+        options:
+          - L1
+          - L2
+          - L3
 
 # run-name: Build Matrix for OpenWrt (Docker)
 run-name: >-
@@ -130,6 +140,7 @@ jobs:
         env:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           STABLE_BRANCH: ${{ steps.git-heads.outputs.repo_branch }}
+          REQUESTED_LEVEL: ${{ github.event.inputs.build_level }}
         run: |
           set -euo pipefail
 
@@ -141,7 +152,13 @@ jobs:
                 *) echo 'Unknown schedule' >&2; exit 1 ;;
               esac
               ;;
-            push|workflow_dispatch|repository_dispatch) level=L3 ;;
+            workflow_dispatch)
+              case "$REQUESTED_LEVEL" in
+                L1|L2|L3) level="$REQUESTED_LEVEL" ;;
+                *) echo 'Invalid build level' >&2; exit 1 ;;
+              esac
+              ;;
+            push|repository_dispatch) level=L3 ;;
             *) echo 'Unsupported trigger' >&2; exit 1 ;;
           esac
 
@@ -660,7 +677,6 @@ jobs:
 
       - name: Upload OpenWrt to Release
         id: release
-        if: ${{ matrix.build_level != 'L3' }}
         uses: ncipollo/release-action@main
         env:
           timestamp: ${{ steps.output.outputs.timestamp }}

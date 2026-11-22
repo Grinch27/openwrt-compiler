@@ -1,7 +1,6 @@
 name: Build OpenWrt (Immortalwrt)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
     inputs:
       OpenWrt_Repository:

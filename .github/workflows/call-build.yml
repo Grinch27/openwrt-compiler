@@ -7,7 +7,6 @@ on:
   # schedule:
   # UTC Time
   # - cron: "0 1 * * *"
-  repository_dispatch:
   workflow_dispatch:
 
 permissions: write-all

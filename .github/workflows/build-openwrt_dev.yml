@@ -1,7 +1,6 @@
 name: Build OpenWrt (Dev)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
     inputs:
       OpenWrt_Repository:

@@ -4,7 +4,6 @@ name: Heads (Dev)
 run-name: Heads of Repository
 
 on:
-  repository_dispatch:
   workflow_dispatch:
 
 permissions: write-all

@@ -1,7 +1,6 @@
 name: Repository to Artifact (Dev)
 
 on:
-  repository_dispatch:
   workflow_dispatch:
     inputs:
       runner_image:
