@@ -1,0 +1,22 @@
+name: Validate reusable OpenWrt build (Nokia)
+# Temporary one-shot push test; remove after acceptance.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/workflow-call-nokia-validation.yml"
+
+# Match the called workflow's existing permissions; no additional permissions.
+permissions: write-all
+
+jobs:
+  nokia:
+    uses: ./.github/workflows/call-build_allinone.yml
+    with:
+      OpenWrt_Repository: "https://github.com/openwrt/openwrt.git"
+      OpenWrt_Branch: "main"
+      Target_System: "MediaTek_Ralink_ARM"
+      Subtarget: "MT798x"
+      Target_Profile: "nokia_ea0326gmp"
+      custom_env: ""

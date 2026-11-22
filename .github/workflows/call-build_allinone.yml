@@ -70,6 +70,38 @@ on:
         type: string
         required: false
         default: ""
+  workflow_call:
+    inputs:
+      # ========== Base ==========
+      RUNNER_IMAGE:
+        description: "Runner Image"
+        required: false
+        type: string
+      custom_env:
+        description: "key=value;key=value"
+        type: string
+        required: false
+      # ========== OpenWrt ==========
+      OpenWrt_Repository:
+        description: "OpenWrt Repository URL"
+        required: true
+        type: string
+      OpenWrt_Branch:
+        description: "OpenWrt Branch Name"
+        required: true
+        type: string
+      Target_System:
+        description: "Target System"
+        required: true
+        type: string
+      Subtarget:
+        description: "Subtarget"
+        required: true
+        type: string
+      Target_Profile:
+        description: "Target Profile"
+        required: false
+        type: string
 
 # run-name: Build Matrix for OpenWrt (Docker)
 run-name: >-
@@ -179,34 +211,43 @@ jobs:
         id: build-matrix
         env:
           EVENT_SCHEDULE: ${{ github.event.schedule }}
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CURRENT_WORKFLOW_REF: ${{ job.workflow_ref }}
           STABLE_BRANCH: ${{ steps.git-heads.outputs.repo_branch }}
-          REQUESTED_LEVEL: ${{ github.event.inputs.build_level }}
-          CUSTOM_REPO: ${{ github.event.inputs.OpenWrt_Repository }}
-          CUSTOM_BRANCH: ${{ github.event.inputs.OpenWrt_Branch }}
-          CUSTOM_SYSTEM: ${{ github.event.inputs.Target_System }}
-          CUSTOM_SUBTARGET: ${{ github.event.inputs.Subtarget }}
-          CUSTOM_PROFILE: ${{ github.event.inputs.Target_Profile }}
-          CUSTOM_ENV: ${{ github.event.inputs.custom_env }}
+          REQUESTED_LEVEL: ${{ inputs.build_level }}
+          CUSTOM_REPO: ${{ inputs.OpenWrt_Repository }}
+          CUSTOM_BRANCH: ${{ inputs.OpenWrt_Branch }}
+          CUSTOM_SYSTEM: ${{ inputs.Target_System }}
+          CUSTOM_SUBTARGET: ${{ inputs.Subtarget }}
+          CUSTOM_PROFILE: ${{ inputs.Target_Profile }}
+          CUSTOM_ENV: ${{ inputs.custom_env }}
         run: |
           set -euo pipefail
 
-          case "$GITHUB_EVENT_NAME" in
-            schedule)
-              case "$EVENT_SCHEDULE" in
-                "$cron_everyday") level="Tier 1" ;;
-                "$cron_sunday") level="Tier 2" ;;
-                *) echo 'Unknown schedule' >&2; exit 1 ;;
-              esac
-              ;;
-            workflow_dispatch)
-              case "$REQUESTED_LEVEL" in
-                "Tier 1"|"Tier 2"|"Tier 3"|Custom) level="$REQUESTED_LEVEL" ;;
-                *) echo 'Invalid build tier' >&2; exit 1 ;;
-              esac
-              ;;
-            push|repository_dispatch) level="Tier 3" ;;
-            *) echo 'Unsupported trigger' >&2; exit 1 ;;
-          esac
+          [[ -n "$CALLER_WORKFLOW_REF" && -n "$CURRENT_WORKFLOW_REF" ]] || { echo 'Missing workflow identity' >&2; exit 1; }
+          reusable_call=false
+          if [[ "$CURRENT_WORKFLOW_REF" != "$CALLER_WORKFLOW_REF" || "$GITHUB_EVENT_NAME" == workflow_call ]]; then
+            reusable_call=true
+            level=Custom
+          else
+            case "$GITHUB_EVENT_NAME" in
+              schedule)
+                case "$EVENT_SCHEDULE" in
+                  "$cron_everyday") level="Tier 1" ;;
+                  "$cron_sunday") level="Tier 2" ;;
+                  *) echo 'Unknown schedule' >&2; exit 1 ;;
+                esac
+                ;;
+              workflow_dispatch)
+                case "$REQUESTED_LEVEL" in
+                  "Tier 1"|"Tier 2"|"Tier 3"|Custom) level="$REQUESTED_LEVEL" ;;
+                  *) echo 'Invalid build tier' >&2; exit 1 ;;
+                esac
+                ;;
+              push|repository_dispatch) level="Tier 3" ;;
+              *) echo 'Unsupported trigger' >&2; exit 1 ;;
+            esac
+          fi
 
           custom_env=""
           if [[ "$level" == Custom ]]; then
@@ -240,7 +281,7 @@ jobs:
             fi
           fi
 
-          matrix=$(jq -cen --arg level "$level" --arg stable "$STABLE_BRANCH" \
+          matrix=$(jq -cen --arg level "$level" --arg stable "$STABLE_BRANCH" --argjson reusable_call "$reusable_call" \
             --arg repo "$CUSTOM_REPO" --arg branch "$CUSTOM_BRANCH" \
             --arg system "$CUSTOM_SYSTEM" --arg subtarget "$CUSTOM_SUBTARGET" \
             --arg profile "$CUSTOM_PROFILE" --arg custom_env "$custom_env" '
@@ -277,17 +318,11 @@ jobs:
                   if ($stable | test("^openwrt-[0-9]+\\.[0-9]+$")) then .openwrt_branch = $stable
                   else error("Invalid stable branch") end
                 else . end
-                | . + {build_level: $level, custom_env: $custom_env}
+                | . + {build_level: $level, custom_env: $custom_env, reusable_call: $reusable_call}
               )')
           printf 'build_matrix=%s\n' "$matrix" | tee -a "$GITHUB_OUTPUT"
 
   action:
-    if: >-
-      ${{
-        github.event_name != 'schedule' ||
-        github.event.schedule == needs.heads.outputs.cron_everyday ||
-        github.event.schedule == needs.heads.outputs.cron_sunday
-      }}
     name: >-
       ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
       gcc-${{ needs.toolchain.outputs.gcc_version }} -
@@ -784,7 +819,7 @@ jobs:
           version_kernel: ${{ steps.version-kernel.outputs.version }}
         with:
           name: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
-          tag: "${{ matrix.build_level == 'Custom' && format('custom-{0}-{1}', github.run_id, github.run_attempt) || format('{0}+{1}+{2}', matrix.openwrt_branch, env.version_kernel, env.Target_Profile) }}"
+          tag: "${{ matrix.build_level == 'Custom' && (matrix.reusable_call && format('custom-{0}-{1}-{2}', github.run_id, github.run_attempt, job.check_run_id) || format('custom-{0}-{1}', github.run_id, github.run_attempt)) || format('{0}+{1}+{2}', matrix.openwrt_branch, env.version_kernel, env.Target_Profile) }}"
           artifacts: "${{ env.PATH_output }}/*"
           allowUpdates: true
           removeArtifacts: false
