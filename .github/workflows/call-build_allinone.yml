@@ -12,7 +12,10 @@ on:
     paths:
       - ".github/workflows/call-build_allinone.yml"
   schedule:
-    - cron: "0 21 * * *"
+    - cron: &cron_everyday "0 21 * * *"
+      timezone: "Etc/UTC"
+    # Sunday daily slot + 3 hours (Monday 00:00 UTC)
+    - cron: &cron_sunday "0 0 * * 1"
       timezone: "Etc/UTC"
   repository_dispatch:
   workflow_dispatch:
@@ -30,6 +33,8 @@ defaults:
     shell: bash
 
 env:
+  cron_everyday: *cron_everyday
+  cron_sunday: *cron_sunday
   CONTAINER_IMAGE: &container_image ubuntu:devel
   DEBIAN_FRONTEND: noninteractive
   DEBCONF_NONINTERACTIVE_SEEN: "true"
@@ -101,6 +106,8 @@ jobs:
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     outputs:
       repo_branch: ${{ steps.git-heads.outputs.repo_branch }}
+      cron_everyday: ${{ env.cron_everyday }}
+      cron_sunday: ${{ env.cron_sunday }}
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +124,12 @@ jobs:
           echo "repo_branch=openwrt-$repo_head" | tee -a "${GITHUB_OUTPUT}"
 
   action:
+    if: >-
+      ${{
+        github.event_name != 'schedule' ||
+        github.event.schedule == needs.heads.outputs.cron_everyday ||
+        github.event.schedule == needs.heads.outputs.cron_sunday
+      }}
     name: >-
       ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
       gcc-${{ needs.toolchain.outputs.gcc_version }} -
@@ -173,7 +186,15 @@ jobs:
       max-parallel: 6
       matrix:
         openwrt_repo: ["https://github.com/openwrt/openwrt.git"]
-        openwrt_branch: ["main", "${{ needs.heads.outputs.repo_branch }}"]
+        openwrt_branch: >-
+          ${{
+            fromJSON(
+              github.event_name == 'schedule' &&
+              github.event.schedule == needs.heads.outputs.cron_sunday &&
+              format('["{0}"]', needs.heads.outputs.repo_branch) ||
+              '["main"]'
+            )
+          }}
         workflows_inputs:
           - {
               Target_System: "MediaTek_Ralink_ARM",
@@ -185,13 +206,23 @@ jobs:
               Subtarget: "MT7621",
               Target_Profile: "",
             }
+          - {
+              Target_System: "x86",
+              Subtarget: "x86_64",
+              Target_Profile: "",
+            }
         exclude:
           - openwrt_branch: "${{ needs.heads.outputs.repo_branch }}"
             workflows_inputs:
               Target_System: "MediaTek_Ralink_MIPS"
               Subtarget: "MT7621"
               Target_Profile: ""
-        include:
+          - openwrt_branch: "${{ needs.heads.outputs.repo_branch }}"
+            workflows_inputs:
+              Target_System: "x86"
+              Subtarget: "x86_64"
+              Target_Profile: ""
+        # include:
           # - {
           #     openwrt_repo: "https://github.com/openwrt/openwrt.git",
           #     openwrt_branch: "main",
@@ -202,16 +233,6 @@ jobs:
           #         Target_Profile: "MT798x_docker",
           #       },
           #   }
-          - {
-              openwrt_repo: "https://github.com/openwrt/openwrt.git",
-              openwrt_branch: "main",
-              workflows_inputs:
-                {
-                  Target_System: "x86",
-                  Subtarget: "x86_64",
-                  Target_Profile: "",
-                },
-            }
           # - {
           #     openwrt_repo: "https://github.com/hanwckf/immortalwrt-mt798x.git",
           #     openwrt_branch: "openwrt-21.02",
