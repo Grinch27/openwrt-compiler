@@ -1,9 +1,11 @@
-name: Call Build (All in One Docker)
+name: Call Build (All in One)
 
 # Github Actions workflow syntax reference:
 # https://docs.github.com/zh/actions/reference/workflows-and-actions/workflow-syntax
 # https://docs.github.com/zh/actions/reference/workflows-and-actions/metadata-syntax#runs-for-composite-actions
 # https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#yaml-anchors-and-aliases
+# Verify both matrix modes on hosted runners, including job placement and /builder.
+# Tier 3 builds the Nokia profile and can update its release.
 
 on:
   push:
@@ -54,15 +56,19 @@ on:
         type: string
         required: false
         default: ""
+      Use_Container:
+        description: "Custom only: run the build job in a container"
+        type: boolean
+        required: false
+        default: true
       custom_env:
         description: "Custom only: toolchain key=value;key=value (no secrets)"
         type: string
         required: false
         default: ""
 
-# run-name: Build Matrix for OpenWrt (Docker)
 run-name: >-
-  Compile Docker -
+  Compile OpenWrt -
   ${{ github.event_name }} -
   ${{ github.ref_name }}
 
@@ -75,7 +81,7 @@ defaults:
 env:
   cron_everyday: *cron_everyday
   cron_sunday: *cron_sunday
-  CONTAINER_IMAGE: &container_image ubuntu:devel
+  CONTAINER_IMAGE: ubuntu:devel
   DEBIAN_FRONTEND: noninteractive
   DEBCONF_NONINTERACTIVE_SEEN: "true"
   APT_LISTCHANGES_FRONTEND: none
@@ -98,38 +104,49 @@ jobs:
     outputs:
       RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
       CONTAINER_IMAGE: ${{ env.CONTAINER_IMAGE }}
+      CONTAINER_CONFIG: ${{ steps.container-config.outputs.CONTAINER_CONFIG }}
     steps:
       - name: Resolve runner-image
         id: resolve-runner-image
         uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
+      - name: Resolve container configuration
+        id: container-config
+        env:
+          CONTAINER_OPTIONS: >-
+            --privileged
+            --user=0:0
+            --pid=host
+            --ipc=host
+            --uts=host
+            --cgroupns=host
+            --cap-add=ALL
+            --security-opt apparmor=unconfined
+            --security-opt seccomp=unconfined
+            --init
+            --pids-limit=-1
+            --shm-size=12g
+            --ulimit nofile=1048576:1048576
+        run: |
+          config=$(jq -cn --arg image "$CONTAINER_IMAGE" --arg options "$CONTAINER_OPTIONS" '
+            {
+              image: $image,
+              options: $options,
+              volumes: [
+                "/dev:/dev",
+                "/sys:/sys:rw",
+                "/sys/fs/cgroup:/sys/fs/cgroup:rw",
+                "/run/udev:/run/udev:ro",
+                "/lib/modules:/lib/modules:ro",
+                "/var/run/docker.sock:/var/run/docker.sock"
+              ]
+            }')
+          printf 'CONTAINER_CONFIG=%s\n' "$config" >> "$GITHUB_OUTPUT"
 
   toolchain:
     name: ${{ needs.runner-image.outputs.RUNNER_IMAGE }} - ${{ needs.runner-image.outputs.CONTAINER_IMAGE }} - toolchain
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
-    container:
-      image: *container_image
-      options: &container_options >-
-        --privileged
-        --user=0:0
-        --pid=host
-        --ipc=host
-        --uts=host
-        --cgroupns=host
-        --cap-add=ALL
-        --security-opt apparmor=unconfined
-        --security-opt seccomp=unconfined
-        --init
-        --pids-limit=-1
-        --shm-size=12g
-        --ulimit nofile=1048576:1048576
-      volumes: &container_volumes
-        - /dev:/dev
-        - /sys:/sys:rw
-        - /sys/fs/cgroup:/sys/fs/cgroup:rw
-        - /run/udev:/run/udev:ro
-        - /lib/modules:/lib/modules:ro
-        - /var/run/docker.sock:/var/run/docker.sock
+    container: ${{ fromJSON(needs.runner-image.outputs.CONTAINER_CONFIG) }}
     outputs:
       gcc_version: ${{ steps.resolve-toolchain.outputs.gcc_version }}
       clang_version: ${{ steps.resolve-toolchain.outputs.clang_version }}
@@ -174,6 +191,7 @@ jobs:
           CUSTOM_SYSTEM: ${{ inputs.Target_System }}
           CUSTOM_SUBTARGET: ${{ inputs.Subtarget }}
           CUSTOM_PROFILE: ${{ inputs.Target_Profile }}
+          CUSTOM_USE_CONTAINER: ${{ inputs.Use_Container }}
           CUSTOM_ENV: ${{ inputs.custom_env }}
         run: |
           set -euo pipefail
@@ -194,7 +212,13 @@ jobs:
           esac
 
           custom_env=""
+          use_container=true
           if [[ "$level" == Custom ]]; then
+            use_container=${CUSTOM_USE_CONTAINER:-true}
+            case "$use_container" in
+              true|false) ;;
+              *) echo 'Invalid Use_Container value' >&2; exit 1 ;;
+            esac
             [[ "$CUSTOM_REPO" =~ ^(https://)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$ ]] || { echo 'Invalid repository URL' >&2; exit 1; }
             [[ "/${CUSTOM_REPO#https://}/" != *'/../'* && "/${CUSTOM_REPO#https://}/" != *'/./'* ]] || { echo 'Invalid repository path' >&2; exit 1; }
             CUSTOM_REPO="https://${CUSTOM_REPO#https://}"
@@ -228,10 +252,12 @@ jobs:
           matrix=$(jq -cen --arg level "$level" --arg stable "$STABLE_BRANCH" \
             --arg repo "$CUSTOM_REPO" --arg branch "$CUSTOM_BRANCH" \
             --arg system "$CUSTOM_SYSTEM" --arg subtarget "$CUSTOM_SUBTARGET" \
-            --arg profile "$CUSTOM_PROFILE" --arg custom_env "$custom_env" '
+            --arg profile "$CUSTOM_PROFILE" --arg custom_env "$custom_env" \
+            --argjson use_container "$use_container" '
             def job($repo; $branch; $system; $subtarget; $profile): {
               openwrt_repo: $repo,
               openwrt_branch: $branch,
+              use_container: true,
               workflows_inputs: {
                 Target_System: $system,
                 Subtarget: $subtarget,
@@ -254,7 +280,7 @@ jobs:
               ]
             }
             | if $level == "Custom" then
-                [job($repo; $branch; $system; $subtarget; $profile)]
+                [job($repo; $branch; $system; $subtarget; $profile) + {use_container: $use_container}]
               else .[$level] end
             | if type != "array" or length == 0 then error("Empty or unknown tier") else . end
             | map(
@@ -269,7 +295,7 @@ jobs:
   action:
     name: >-
       ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
-      gcc-${{ needs.toolchain.outputs.gcc_version }} -
+      ${{ matrix.use_container && 'Container' || 'Non-container' }} -
       ${{ matrix.openwrt_branch }} -
       ${{ matrix.workflows_inputs.Target_System }} -
       ${{ matrix.workflows_inputs.Subtarget }} -
@@ -279,10 +305,8 @@ jobs:
       - toolchain
       - heads
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
-    container:
-      image: *container_image
-      options: *container_options
-      volumes: *container_volumes
+    # The runner treats an empty container expression as host execution.
+    container: ${{ matrix.use_container && fromJSON(needs.runner-image.outputs.CONTAINER_CONFIG) || '' }}
     env:
       custom_env: ${{ matrix.custom_env }}
       # ========= Toolchain Environment Variables ==========
@@ -357,6 +381,19 @@ jobs:
           #   }
     steps:
       # ========== Pre: Settings ==========
+      - name: Verify build execution mode
+        env:
+          USE_CONTAINER: ${{ matrix.use_container }}
+          JOB_CONTAINER_ID: ${{ job.container.id }}
+        run: |
+          if [[ "$USE_CONTAINER" == true && -n "$JOB_CONTAINER_ID" ]] ||
+             [[ "$USE_CONTAINER" == false && -z "$JOB_CONTAINER_ID" ]]; then
+            printf 'Build job matches use_container=%s\n' "$USE_CONTAINER"
+          else
+            printf '::error::Build job placement differs from use_container=%s\n' "$USE_CONTAINER"
+            exit 1
+          fi
+
       - name: (Env) GCC Cross-Compiler
         id: env-gcc_cross
         run: |
@@ -422,7 +459,7 @@ jobs:
           done
 
       # ========== General Environment Setup: Start ==========
-      - name: Docker Workspace All in One
+      - name: Prepare build environment
         id: docker-workspace
         uses: Grinch27/github-actions/.github/actions/env-indocker@main
 
