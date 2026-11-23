@@ -199,11 +199,14 @@ jobs:
       Target_Profile: ${{ inputs.Target_Profile || inputs.Subtarget || 'nokia_ea0326gmp' }}
       # ----- Build Path -----
       PATH_build: "/builder"
-      PATH_target: "/builder/target"
+      PATH_target: &path_target "/builder/target"
       PATH_output: "/builder/output"
       PATH_backup: "/builder/backup"
       PATH_self: "/builder/self"
       MD_release: "/builder/release.md"
+    defaults:
+      run:
+        working-directory: *path_target
     steps:
       # ========== General Environment Setup: Start ==========
       - name: Prepare build environment
@@ -279,7 +282,6 @@ jobs:
 
       # ========== Compile: Start ==========
       - name: (feeds.conf.default) Load custom feeds
-        working-directory: ${{ env.PATH_target }}
         run: |
           echo -e "Current working directory: $(pwd)"
           if [[ -e "${diy_feeds}" && ! "${diy_feeds}" -ef "${PATH_target}/feeds.conf.default" ]]; then
@@ -288,7 +290,6 @@ jobs:
           fi
 
       - name: (DIY_P1.sh) after load feeds, before update feeds
-        working-directory: ${{ env.PATH_target }}
         env:
           file_script: ${{ env.diy_p1_sh }}
         run: &run-diy |
@@ -304,7 +305,6 @@ jobs:
 
       - name: Update feeds
         id: feeds-update
-        working-directory: ${{ env.PATH_target }}
         run: |
           echo -e "Current working directory: $(pwd)"
           cat ./feeds.conf.default
@@ -312,14 +312,12 @@ jobs:
 
       - name: (Install) feeds
         id: feeds-install
-        working-directory: ${{ env.PATH_target }}
         run: |
           echo -e "Current working directory: $(pwd)"
           ./scripts/feeds install -a
 
       - name: (/files) Load custom files
         id: files
-        working-directory: ${{ env.PATH_target }}
         run: |
           mkdir -p -- ./files/etc/config
           if [[ -d "${diy_files}" ]]; then
@@ -331,7 +329,6 @@ jobs:
 
       - name: (.config) Load custom configuration
         id: config-custom
-        working-directory: ${{ env.PATH_target }}
         run: |
           set -euo pipefail
           if [[ ! "${diy_config}" -ef "${PATH_target}/.config" ]]; then
@@ -343,7 +340,6 @@ jobs:
         if: ${{ 'true' == 'false' }} # disable
         env:
           PATH_patches: ${{ env.PATH_patches }}
-        working-directory: ${{ env.PATH_target }}
         run: |
           printf "Current working directory: %s\n" "$(pwd)"
 
@@ -352,14 +348,12 @@ jobs:
           fi
 
       - name: (DIY_P2.sh) after install feeds, before download package
-        working-directory: ${{ env.PATH_target }}
         env:
           file_script: ${{ env.diy_p2_sh }}
         run: *run-diy
 
       - name: Generate OpenWrt configuration
         id: config-update
-        working-directory: ${{ env.PATH_target }}
         run: |
           set -euo pipefail
           test -s .config
@@ -370,7 +364,6 @@ jobs:
       - name: Clean & Rebuild host tools
         id: make-clean
         # if: ${{ 'true' == 'false' }} # disable
-        working-directory: ${{ env.PATH_target }}
         run: |
           make dirclean
           # make tools/install -j$(($(nproc) + 1))
@@ -378,7 +371,6 @@ jobs:
 
       - name: Download package
         id: package
-        working-directory: ${{ env.PATH_target }}
         run: |
           echo -e "Current working directory: $(pwd)"
           echo -e "make download: $(($(nproc) + 1)) thread"
@@ -389,14 +381,12 @@ jobs:
       - name: Test Before Compile
         id: make-test
         if: ${{ 'true' == 'false' }} # disable
-        working-directory: ${{ env.PATH_target }}
         run: |
           echo -e "Current working directory: $(pwd)"
           # grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
 
       - name: Compile the OpenWrt
         id: compile
-        working-directory: ${{ env.PATH_target }}
         run: |
           echo -e "Current working directory: $(pwd)"
           echo -e "$(($(nproc) + 1)) thread compile"
@@ -466,7 +456,6 @@ jobs:
 
       - name: "[release.md] Record release.md"
         id: record
-        working-directory: ${{ env.PATH_target }}
         run: |
           printf "Current working directory: %s\n" "$(pwd)"
 
