@@ -539,9 +539,9 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 - 每周计划为 `0 0 * * 1`（UTC）：官方最新版本系列分支 / MediaTek_Ralink_ARM / MT798x，以及 `main` / x86 / x86_64、`main` / MediaTek_Ralink_MIPS / MT7621。最新版本系列分支由调度工作流的 `resolve-stable-branch` Job 查询匹配 `openwrt-<major>.<minor>` 的远端分支并按版本排序取得；查询失败或无匹配时，整个每周 Matrix 不执行。
 - 每日和每周均使用原生静态 YAML Matrix；通过同仓库 `jobs.<job_id>.uses` 和 `with` 传递具体目标参数。Cron 与对应 Job 条件必须同步；未匹配的 Cron 不得触发默认构建。
 - 主工作流不得重新引入 Cron、Tier / Custom 等级分类、`@stable` 等分支占位标识、内部编译 Matrix、`jq` / `fromJSON()` 动态目标矩阵或定时目标集合。传入实际 Git 分支名称，不使用内部占位符。
-- `resolve-runner-image` 属于编译环境初始化，必须保留在主工作流中，不迁入调度工作流。调度层的 `resolve-stable-branch` 是非编译引导 Job，按已批准的项目架构直接使用 `ubuntu-latest`，不为该查询额外解析 Runner；这是 Part I 第 4 节 Runner 规范在本项目的明确局部例外，不推广到编译 Job。
+- `resolve-runner-image` 属于编译环境初始化，必须保留在主工作流中，不迁入调度工作流。`runner-image` Job 只执行 `resolve-runner-image`，仅输出 `RUNNER_IMAGE`，不得声明、解析或转发编译业务参数。调度层的 `resolve-stable-branch` 是非编译引导 Job，按已批准的项目架构直接使用 `ubuntu-latest`，不为该查询额外解析 Runner；这是 Part I 第 4 节 Runner 规范在本项目的明确局部例外，不推广到编译 Job。
 - 自动调度及直接匹配路径的 main push 默认使用 Container；后者保持官方 `main` / MediaTek_Ralink_ARM / MT798x / nokia_ea0326gmp。参数化手动调用默认 `Use_Container=true`，设为 `false` 可选择 Non-container。可复用调用支持同一参数接口，保留显式 `false`，不得使用会吞掉 false 的默认值表达式。
-- 保留 `OpenWrt_Repository`、`OpenWrt_Branch`、`Target_System`、`Subtarget`、`Target_Profile`、`Use_Container`、`custom_env` 接口和七个 Job Outputs；通过 `runner-image.env` 声明默认值，Outputs 直接读取 env。不得恢复独立 `resolve-target` 业务参数校验或规范化层。空 Profile 按 Subtarget 解析（直接 Nokia Push 除外）；必须保留路径范围、环境文件注入、HTTPS Transport 和 Shell 引用等安全防护，以及共享 `input-custom` 的工具链覆盖校验。
+- 保留 `OpenWrt_Repository`、`OpenWrt_Branch`、`Target_System`、`Subtarget`、`Target_Profile`、`Use_Container`、`custom_env` 接口；通过 `action.env` 直接声明 inputs 与默认值，不再经 `runner-image` 转发七个业务 Outputs。`action.name` 只显示 Runner 与执行模式，`container.image` 使用可用的上下文直接选择执行环境；后续 Step 使用 env。不得恢复独立 `resolve-target` 业务参数校验或规范化层。空 Profile 按 Subtarget 解析（直接 Nokia Push 除外）；必须保留路径范围、环境文件注入、HTTPS Transport 和 Shell 引用等安全防护，以及共享 `input-custom` 的工具链覆盖校验。
 - 配置仓库按触发运行的 `github.sha` 固定版本，在磁盘初始化后克隆并检查 Profile 配置存在性，再克隆上游完整历史；记录配置和源码 Commit。
 - 主工作流仅在所有 DIY 修改后统一执行一次 `make defconfig`，失败须停止；DIY P2 只负责修改，不再执行 `make oldconfig` 或 `make defconfig`。保留 Nokia 专属配置和固件验证。
 - 不得未经批准重新合并调度与编译职责、改变 Cron、目标集合、默认参数、Push 路径条件、发布策略或新增 `repository_dispatch`。两个工作流的调用契约变更须在同一提交中完成，并验证调用关系及发布权限。

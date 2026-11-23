@@ -9,9 +9,9 @@ name: Call Build (All in One)
 # Direct main pushes build Nokia EA0326GMP and may update its release.
 # All targets require their local profile configuration; verify new targets before scheduling.
 # Review future runner-resolution reuse separately; retain dynamic runner selection.
-# D01-D04: declarative defaults; preserve seven outputs and typed boolean inputs.
+# Runner-only: build inputs/defaults belong to action.env; preserve typed boolean inputs.
 # Risk: trusted HTTPS build sources only; shared input-custom validates overrides.
-# Verify hosted env outputs, exact config SHA, clean clone paths and defconfig equivalence.
+# Verify hosted input expressions, exact config SHA, clean clone paths and defconfig equivalence.
 # Unknown: historical forks and indirect DIY dependencies require real build acceptance.
 # Variable setup: preserve exported names and paths; verify both execution modes and shared env-indocker.
 # Verify direct push, reusable caller, explicit false, invalid inputs and hosted release behavior.
@@ -124,23 +124,8 @@ jobs:
   runner-image:
     name: ubuntu-latest - runner-image
     runs-on: ubuntu-latest
-    env:
-      openwrt_repo: ${{ inputs.OpenWrt_Repository || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'https://github.com/openwrt/openwrt.git' || 'https://git.openwrt.org/openwrt/openwrt.git') }}
-      openwrt_branch: ${{ inputs.OpenWrt_Branch || 'main' }}
-      target_system: ${{ inputs.Target_System || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'MediaTek_Ralink_ARM' || 'x86') }}
-      subtarget: ${{ inputs.Subtarget || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'MT798x' || 'x86_64') }}
-      target_profile: ${{ (github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'nokia_ea0326gmp' || inputs.Target_Profile || inputs.Subtarget || 'x86_64' }}
-      use_container: ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'true' || 'false' }}
-      custom_env: ${{ inputs.custom_env || '' }}
     outputs:
       RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
-      openwrt_repo: ${{ env.openwrt_repo }}
-      openwrt_branch: ${{ env.openwrt_branch }}
-      target_system: ${{ env.target_system }}
-      subtarget: ${{ env.subtarget }}
-      target_profile: ${{ env.target_profile }}
-      use_container: ${{ env.use_container }}
-      custom_env: ${{ env.custom_env }}
     steps:
       - name: Resolve runner-image
         id: resolve-runner-image
@@ -149,16 +134,12 @@ jobs:
   action:
     name: >-
       ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
-      ${{ needs.runner-image.outputs.use_container == 'true' && 'Container' || 'Non-container' }} -
-      ${{ needs.runner-image.outputs.openwrt_branch }} -
-      ${{ needs.runner-image.outputs.target_system }} -
-      ${{ needs.runner-image.outputs.subtarget }} -
-      ${{ needs.runner-image.outputs.target_profile }}
+      ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'Container' || 'Non-container' }}
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     container:
       # An empty image selects the host runner.
-      image: ${{ needs.runner-image.outputs.use_container == 'true' && 'ubuntu:devel' || '' }}
+      image: ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'ubuntu:devel' || '' }}
       options: >-
         --privileged
         --user=0:0
@@ -181,14 +162,15 @@ jobs:
         - /lib/modules:/lib/modules:ro
         - /var/run/docker.sock:/var/run/docker.sock
     env:
-      custom_env: ${{ needs.runner-image.outputs.custom_env }}
+      USE_CONTAINER: ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'true' || 'false' }}
+      custom_env: ${{ inputs.custom_env || '' }}
       # ========= Toolchain Environment Variables ==========
       # ----- gcc -----
       gcc_purge: false
       gcc_install: false
       gcc_switch: false
       gcc_version: ""
-      gcc_aarch64: ${{ needs.runner-image.outputs.target_system == 'MediaTek_Ralink_ARM' && 'true' || 'false' }}
+      gcc_aarch64: ${{ (inputs.Target_System || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'MediaTek_Ralink_ARM' || 'x86')) == 'MediaTek_Ralink_ARM' && 'true' || 'false' }}
       # ----- clang -----
       clang_purge: false
       clang_install: false
@@ -204,16 +186,16 @@ jobs:
       qemu_install: false
       # ========= Workspace Environment Variables ==========
       # ----- Repository -----
-      REPO_target: "${{ needs.runner-image.outputs.openwrt_repo }}"
-      REPO_target_branch: "${{ needs.runner-image.outputs.openwrt_branch }}"
+      REPO_target: ${{ inputs.OpenWrt_Repository || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'https://github.com/openwrt/openwrt.git' || 'https://git.openwrt.org/openwrt/openwrt.git') }}
+      REPO_target_branch: ${{ inputs.OpenWrt_Branch || 'main' }}
       REPO_self: "https://github.com/${{ github.repository }}"
       REPO_self_branch: ${{ github.ref_name }}
       REPO_self_sha: ${{ github.sha }}
       REPO_self_owner: ${{ github.repository_owner }}
       # ----- Build Target -----
-      Target_System: ${{ needs.runner-image.outputs.target_system }}
-      Subtarget: ${{ needs.runner-image.outputs.subtarget }}
-      Target_Profile: ${{ needs.runner-image.outputs.target_profile }}
+      Target_System: ${{ inputs.Target_System || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'MediaTek_Ralink_ARM' || 'x86') }}
+      Subtarget: ${{ inputs.Subtarget || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'MT798x' || 'x86_64') }}
+      Target_Profile: ${{ (github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'nokia_ea0326gmp' || inputs.Target_Profile || inputs.Subtarget || 'x86_64' }}
       # ----- Build Path -----
       PATH_build: "/builder"
       PATH_target: "/builder/target"
@@ -226,7 +208,6 @@ jobs:
       # ========== Pre: Settings ==========
       - name: Verify build execution mode
         env:
-          USE_CONTAINER: ${{ needs.runner-image.outputs.use_container }}
           JOB_CONTAINER_ID: ${{ job.container.id }}
         run: |
           if [[ "$USE_CONTAINER" == true && -n "$JOB_CONTAINER_ID" ]] ||
@@ -396,7 +377,7 @@ jobs:
           cat .config
 
       - name: Verify Nokia single-device configuration
-        if: ${{ needs.runner-image.outputs.target_profile == 'nokia_ea0326gmp' }}
+        if: ${{ env.Target_Profile == 'nokia_ea0326gmp' }}
         working-directory: ${{ env.PATH_target }}
         run: |
           grep -Fxq 'CONFIG_TARGET_mediatek=y' .config
@@ -449,7 +430,7 @@ jobs:
           make -j$(($(nproc) + 1)) V=s
 
       - name: Verify Nokia firmware image
-        if: ${{ needs.runner-image.outputs.target_profile == 'nokia_ea0326gmp' }}
+        if: ${{ env.Target_Profile == 'nokia_ea0326gmp' }}
         working-directory: ${{ env.PATH_target }}
         run: |
           image=$(find bin/targets/mediatek/filogic -maxdepth 1 -type f -name '*nokia_ea0326gmp*sysupgrade.itb' -print -quit)
@@ -583,8 +564,8 @@ jobs:
           timestamp: ${{ steps.output.outputs.timestamp }}
           version_kernel: ${{ steps.version-kernel.outputs.version }}
         with:
-          name: "${{ needs.runner-image.outputs.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
-          tag: "${{ needs.runner-image.outputs.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
+          name: "${{ env.REPO_target_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
+          tag: "${{ env.REPO_target_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
           artifacts: "${{ env.PATH_output }}/*"
           allowUpdates: true
           removeArtifacts: false
