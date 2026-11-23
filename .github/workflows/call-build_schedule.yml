@@ -1,0 +1,83 @@
+name: Call Build (Scheduled)
+
+# Keep each cron and its job condition in sync (UTC).
+# Verify daily/weekly caller matrices and release delivery on hosted runners.
+# Unmatched cron skips all jobs; test the mapping whenever schedules change.
+# Weekly builds require successful stable branch resolution.
+# Keep runner selection and build validation in the called workflow.
+
+on:
+  schedule:
+    - cron: "0 21 * * *"
+      timezone: "Etc/UTC"
+    - cron: "0 0 * * 1"
+      timezone: "Etc/UTC"
+
+run-name: Compile OpenWrt - schedule - ${{ github.ref_name }}
+
+permissions: write-all
+
+jobs:
+  daily:
+    if: github.event.schedule == '0 21 * * *'
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - OpenWrt_Branch: "main"
+            Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+    uses: ./.github/workflows/call-build_allinone.yml
+    with:
+      OpenWrt_Repository: "https://github.com/openwrt/openwrt.git"
+      OpenWrt_Branch: ${{ matrix.OpenWrt_Branch }}
+      Target_System: ${{ matrix.Target_System }}
+      Subtarget: ${{ matrix.Subtarget }}
+
+  resolve-stable-branch:
+    if: github.event.schedule == '0 0 * * 1'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      branch: ${{ steps.git-heads.outputs.branch }}
+    steps:
+      - name: Get the latest OpenWrt stable branch
+        id: git-heads
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! branch=$(git ls-remote --heads https://github.com/openwrt/openwrt.git \
+            | awk '$2 ~ /^refs\/heads\/openwrt-[0-9]+\.[0-9]+$/ { sub(/^refs\/heads\//, "", $2); print $2 }' \
+            | sort -V | tail -n1); then
+            echo 'Stable branch lookup failed' >&2
+            exit 1
+          fi
+          [[ "$branch" =~ ^openwrt-[0-9]+\.[0-9]+$ ]] || { echo 'No stable branch found' >&2; exit 1; }
+          printf 'branch=%s\n' "$branch" | tee -a "$GITHUB_OUTPUT"
+
+  weekly:
+    needs: resolve-stable-branch
+    if: github.event.schedule == '0 0 * * 1'
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - OpenWrt_Branch: ${{ needs.resolve-stable-branch.outputs.branch }}
+            Target_System: "MediaTek_Ralink_ARM"
+            Subtarget: "MT798x"
+          - OpenWrt_Branch: "main"
+            Target_System: "x86"
+            Subtarget: "x86_64"
+          - OpenWrt_Branch: "main"
+            Target_System: "MediaTek_Ralink_MIPS"
+            Subtarget: "MT7621"
+    uses: ./.github/workflows/call-build_allinone.yml
+    with:
+      OpenWrt_Repository: "https://github.com/openwrt/openwrt.git"
+      OpenWrt_Branch: ${{ matrix.OpenWrt_Branch }}
+      Target_System: ${{ matrix.Target_System }}
+      Subtarget: ${{ matrix.Subtarget }}

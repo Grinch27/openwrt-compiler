@@ -4,8 +4,11 @@ name: Call Build (All in One)
 # https://docs.github.com/zh/actions/reference/workflows-and-actions/workflow-syntax
 # https://docs.github.com/zh/actions/reference/workflows-and-actions/metadata-syntax#runs-for-composite-actions
 # https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations#yaml-anchors-and-aliases
-# Verify both matrix modes on hosted runners, including job placement and /builder.
-# Tier 3 builds the Nokia profile and can update its release.
+# Verify both execution modes on hosted runners, including job placement and /builder.
+# Confirm hosted schedule/call inputs, both build environments, and release behavior.
+# Direct main pushes build Nokia EA0326GMP and may update its release.
+# All targets require their local profile configuration; verify new targets before scheduling.
+# Review future runner-resolution reuse separately; retain dynamic runner selection.
 
 on:
   push:
@@ -14,26 +17,20 @@ on:
     paths:
       - ".github/workflows/call-build_allinone.yml"
       - "MediaTek_Ralink_ARM/MT798x/nokia_ea0326gmp/**"
-  schedule:
-    - cron: &cron_everyday "0 21 * * *"
-      timezone: "Etc/UTC"
-    # Sunday daily slot + 3 hours (Monday 00:00 UTC)
-    - cron: &cron_sunday "0 0 * * 1"
-      timezone: "Etc/UTC"
   workflow_dispatch:
     inputs:
       OpenWrt_Repository:
-        description: "Custom only: repository (HTTPS or host/path)"
+        description: "repository (HTTPS or host/path)"
         type: string
         required: false
         default: "git.openwrt.org/openwrt/openwrt.git"
       OpenWrt_Branch:
-        description: "Custom only: branch"
+        description: "Git branch name"
         type: string
         required: false
         default: "main"
       Target_System:
-        description: "Custom only: target system"
+        description: "target system"
         type: choice
         required: false
         default: "x86"
@@ -42,7 +39,7 @@ on:
           - MediaTek_Ralink_ARM
           - MediaTek_Ralink_MIPS
       Subtarget:
-        description: "Custom only: subtarget"
+        description: "subtarget"
         type: choice
         required: false
         default: "x86_64"
@@ -52,19 +49,42 @@ on:
           - MT7620
           - MT7621
       Target_Profile:
-        description: "Custom only: local profile (empty means Subtarget)"
+        description: "local profile (empty means Subtarget)"
         type: string
         required: false
         default: ""
       Use_Container:
-        description: "Custom only: run the build job in a container"
+        description: "run the build job in a container"
         type: boolean
         required: false
         default: true
       custom_env:
-        description: "Custom only: toolchain key=value;key=value (no secrets)"
+        description: "toolchain key=value;key=value (no secrets)"
         type: string
         required: false
+        default: ""
+  workflow_call:
+    inputs:
+      OpenWrt_Repository:
+        type: string
+        required: true
+      OpenWrt_Branch:
+        type: string
+        required: true
+      Target_System:
+        type: string
+        required: true
+      Subtarget:
+        type: string
+        required: true
+      Target_Profile:
+        type: string
+        default: ""
+      Use_Container:
+        type: boolean
+        default: true
+      custom_env:
+        type: string
         default: ""
 
 run-name: >-
@@ -79,8 +99,6 @@ defaults:
     shell: bash
 
 env:
-  cron_everyday: *cron_everyday
-  cron_sunday: *cron_sunday
   DEBIAN_FRONTEND: noninteractive
   DEBCONF_NONINTERACTIVE_SEEN: "true"
   APT_LISTCHANGES_FRONTEND: none
@@ -102,146 +120,101 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
-      build_matrix: ${{ steps.build-matrix.outputs.build_matrix }}
+      openwrt_repo: ${{ steps.resolve-target.outputs.openwrt_repo }}
+      openwrt_branch: ${{ steps.resolve-target.outputs.openwrt_branch }}
+      target_system: ${{ steps.resolve-target.outputs.target_system }}
+      subtarget: ${{ steps.resolve-target.outputs.subtarget }}
+      target_profile: ${{ steps.resolve-target.outputs.target_profile }}
+      use_container: ${{ steps.resolve-target.outputs.use_container }}
+      custom_env: ${{ steps.resolve-target.outputs.custom_env }}
     steps:
-      - name: Resolve runner-image
-        id: resolve-runner-image
-        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
-      - name: Get the latest openwrt version branch
-        id: git-heads
-        if: ${{ github.event_name == 'schedule' && github.event.schedule == env.cron_sunday }}
-        run: |
-          repo_head=$(git ls-remote --heads "https://github.com/openwrt/openwrt.git" \
-            | grep 'refs/heads/openwrt-[0-9]\+\.[0-9]\+$' \
-            | sed 's/.*refs\/heads\/openwrt-//' \
-            | sort -V \
-            | tail -n1)
-          echo "repo_branch=openwrt-$repo_head" | tee -a "${GITHUB_OUTPUT}"
-
-      - name: Resolve build tier and matrix
-        id: build-matrix
+      - name: Resolve build target
+        id: resolve-target
         env:
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
-          STABLE_BRANCH: ${{ steps.git-heads.outputs.repo_branch }}
-          CUSTOM_REPO: ${{ inputs.OpenWrt_Repository }}
-          CUSTOM_BRANCH: ${{ inputs.OpenWrt_Branch }}
-          CUSTOM_SYSTEM: ${{ inputs.Target_System }}
-          CUSTOM_SUBTARGET: ${{ inputs.Subtarget }}
-          CUSTOM_PROFILE: ${{ inputs.Target_Profile }}
-          CUSTOM_USE_CONTAINER: ${{ inputs.Use_Container }}
-          CUSTOM_ENV: ${{ inputs.custom_env }}
+          INPUT_REPO: ${{ inputs.OpenWrt_Repository }}
+          INPUT_BRANCH: ${{ inputs.OpenWrt_Branch }}
+          INPUT_SYSTEM: ${{ inputs.Target_System }}
+          INPUT_SUBTARGET: ${{ inputs.Subtarget }}
+          INPUT_PROFILE: ${{ inputs.Target_Profile }}
+          INPUT_USE_CONTAINER: ${{ inputs.Use_Container }}
+          INPUT_CUSTOM_ENV: ${{ inputs.custom_env }}
         run: |
           set -euo pipefail
 
-          # Keep scheduled/push tiers separate from parameterized manual builds.
-          # Reject unknown events or cron strings rather than expanding a default matrix.
-          case "$GITHUB_EVENT_NAME" in
-            schedule)
-              case "$EVENT_SCHEDULE" in
-                "$cron_everyday") level="Tier 1" ;;
-                "$cron_sunday") level="Tier 2" ;;
-                *) echo 'Unknown schedule' >&2; exit 1 ;;
-              esac
-              ;;
-            push) level="Tier 3" ;;
-            workflow_dispatch) level=Custom ;;
-            *) echo 'Unsupported trigger' >&2; exit 1 ;;
-          esac
-
-          custom_env=""
-          use_container=true
-          if [[ "$level" == Custom ]]; then
-            use_container=${CUSTOM_USE_CONTAINER:-true}
-            case "$use_container" in
-              true|false) ;;
-              *) echo 'Invalid Use_Container value' >&2; exit 1 ;;
-            esac
-            [[ "$CUSTOM_REPO" =~ ^(https://)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$ ]] || { echo 'Invalid repository URL' >&2; exit 1; }
-            [[ "/${CUSTOM_REPO#https://}/" != *'/../'* && "/${CUSTOM_REPO#https://}/" != *'/./'* ]] || { echo 'Invalid repository path' >&2; exit 1; }
-            CUSTOM_REPO="https://${CUSTOM_REPO#https://}"
-            [[ "$CUSTOM_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$CUSTOM_BRANCH" >/dev/null || { echo 'Invalid branch' >&2; exit 1; }
-            case "$CUSTOM_SYSTEM/$CUSTOM_SUBTARGET" in
-              x86/x86_64|MediaTek_Ralink_ARM/MT798x|MediaTek_Ralink_MIPS/MT7620|MediaTek_Ralink_MIPS/MT7621) ;;
-              *) echo 'Invalid target/subtarget combination' >&2; exit 1 ;;
-            esac
-            [[ -z "$CUSTOM_PROFILE" || "$CUSTOM_PROFILE" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo 'Invalid profile' >&2; exit 1; }
-            if [[ -n "$CUSTOM_ENV" ]]; then
-              [[ "$CUSTOM_ENV" =~ ^[a-z_]+=[a-z0-9]+(\;[a-z_]+=[a-z0-9]+)*$ ]] || { echo 'Invalid custom_env syntax' >&2; exit 1; }
-              declare -A seen=()
-              IFS=';' read -r -a assignments <<< "$CUSTOM_ENV"
-              for assignment in "${assignments[@]}"; do
-                key=${assignment%%=*}
-                value=${assignment#*=}
-                [[ -z "${seen[$key]+x}" ]] || { echo 'Duplicate custom_env key' >&2; exit 1; }
-                seen[$key]=1
-                case "$key" in
-                  gcc_purge|gcc_install|gcc_switch|clang_purge|clang_install|clang_switch|jdk_purge|jdk_install|jdk_switch|docker_install|qemu_install)
-                    [[ "$value" == true || "$value" == false ]] || { echo 'Invalid boolean' >&2; exit 1; } ;;
-                  gcc_version|clang_version|jdk_version)
-                    [[ "$value" =~ ^[1-9][0-9]{0,2}$ ]] || { echo 'Invalid toolchain version' >&2; exit 1; } ;;
-                  *) echo 'Unsupported custom_env key' >&2; exit 1 ;;
-                esac
-              done
-              custom_env="$CUSTOM_ENV"
-            fi
+          # A direct push to this workflow retains the existing Nokia build.
+          # Reusable workflows see the caller's event and workflow reference.
+          if [[ "$GITHUB_EVENT_NAME" == push &&
+                "$GITHUB_WORKFLOW_REF" == "$GITHUB_REPOSITORY/.github/workflows/call-build_allinone.yml@refs/heads/main" ]]; then
+            repo="https://github.com/openwrt/openwrt.git"
+            branch=main
+            system=MediaTek_Ralink_ARM
+            subtarget=MT798x
+            profile=nokia_ea0326gmp
+            use_container=true
+            custom_env=""
+          else
+            repo="$INPUT_REPO"
+            branch="$INPUT_BRANCH"
+            system="$INPUT_SYSTEM"
+            subtarget="$INPUT_SUBTARGET"
+            profile="$INPUT_PROFILE"
+            use_container="$INPUT_USE_CONTAINER"
+            custom_env="$INPUT_CUSTOM_ENV"
           fi
 
-          matrix=$(jq -cen --arg level "$level" --arg stable "$STABLE_BRANCH" \
-            --arg repo "$CUSTOM_REPO" --arg branch "$CUSTOM_BRANCH" \
-            --arg system "$CUSTOM_SYSTEM" --arg subtarget "$CUSTOM_SUBTARGET" \
-            --arg profile "$CUSTOM_PROFILE" --arg custom_env "$custom_env" \
-            --argjson use_container "$use_container" '
-            def job($repo; $branch; $system; $subtarget; $profile): {
-              openwrt_repo: $repo,
-              openwrt_branch: $branch,
-              use_container: true,
-              workflows_inputs: {
-                Target_System: $system,
-                Subtarget: $subtarget,
-                Target_Profile: $profile
-              }
-            };
-            def official($branch; $system; $subtarget; $profile):
-              job("https://github.com/openwrt/openwrt.git"; $branch; $system; $subtarget; $profile);
-            {
-              "Tier 1": [
-                official("main"; "MediaTek_Ralink_ARM"; "MT798x"; "")
-              ],
-              "Tier 2": [
-                official("@stable"; "MediaTek_Ralink_ARM"; "MT798x"; ""),
-                official("main"; "x86"; "x86_64"; ""),
-                official("main"; "MediaTek_Ralink_MIPS"; "MT7621"; "")
-              ],
-              "Tier 3": [
-                official("main"; "MediaTek_Ralink_ARM"; "MT798x"; "nokia_ea0326gmp")
-              ]
-            }
-            | if $level == "Custom" then
-                [job($repo; $branch; $system; $subtarget; $profile) + {use_container: $use_container}]
-              else .[$level] end
-            | if type != "array" or length == 0 then error("Empty or unknown tier") else . end
-            | map(
-                if .openwrt_branch == "@stable" then
-                  if ($stable | test("^openwrt-[0-9]+\\.[0-9]+$")) then .openwrt_branch = $stable
-                  else error("Invalid stable branch") end
-                else . end
-                | . + {build_level: $level, custom_env: $custom_env}
-              )')
-          printf 'build_matrix=%s\n' "$matrix" | tee -a "$GITHUB_OUTPUT"
+          case "$use_container" in
+            true|false) ;;
+            *) echo 'Invalid Use_Container value' >&2; exit 1 ;;
+          esac
+          [[ "$repo" =~ ^(https://)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$ ]] || { echo 'Invalid repository URL' >&2; exit 1; }
+          [[ "/${repo#https://}/" != *'/../'* && "/${repo#https://}/" != *'/./'* ]] || { echo 'Invalid repository path' >&2; exit 1; }
+          repo="https://${repo#https://}"
+          [[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$branch" >/dev/null || { echo 'Invalid branch' >&2; exit 1; }
+          case "$system/$subtarget" in
+            x86/x86_64|MediaTek_Ralink_ARM/MT798x|MediaTek_Ralink_MIPS/MT7620|MediaTek_Ralink_MIPS/MT7621) ;;
+            *) echo 'Invalid target/subtarget combination' >&2; exit 1 ;;
+          esac
+          [[ -z "$profile" || "$profile" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo 'Invalid profile' >&2; exit 1; }
+          if [[ -n "$custom_env" ]]; then
+            [[ "$custom_env" =~ ^[a-z_]+=[a-z0-9]+(\;[a-z_]+=[a-z0-9]+)*$ ]] || { echo 'Invalid custom_env syntax' >&2; exit 1; }
+            declare -A seen=()
+            IFS=';' read -r -a assignments <<< "$custom_env"
+            for assignment in "${assignments[@]}"; do
+              key=${assignment%%=*}
+              value=${assignment#*=}
+              [[ -z "${seen[$key]+x}" ]] || { echo 'Duplicate custom_env key' >&2; exit 1; }
+              seen[$key]=1
+              case "$key" in
+                gcc_purge|gcc_install|gcc_switch|clang_purge|clang_install|clang_switch|jdk_purge|jdk_install|jdk_switch|docker_install|qemu_install)
+                  [[ "$value" == true || "$value" == false ]] || { echo 'Invalid boolean' >&2; exit 1; } ;;
+                gcc_version|clang_version|jdk_version)
+                  [[ "$value" =~ ^[1-9][0-9]{0,2}$ ]] || { echo 'Invalid toolchain version' >&2; exit 1; } ;;
+                *) echo 'Unsupported custom_env key' >&2; exit 1 ;;
+              esac
+            done
+          fi
+
+          profile=${profile:-$subtarget}
+          printf 'openwrt_repo=%s\nopenwrt_branch=%s\ntarget_system=%s\nsubtarget=%s\ntarget_profile=%s\nuse_container=%s\ncustom_env=%s\n' \
+            "$repo" "$branch" "$system" "$subtarget" "$profile" "$use_container" "$custom_env" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve runner-image
+        id: resolve-runner-image
+        uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
 
   action:
     name: >-
       ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
-      ${{ matrix.use_container && 'Container' || 'Non-container' }} -
-      ${{ matrix.openwrt_branch }} -
-      ${{ matrix.workflows_inputs.Target_System }} -
-      ${{ matrix.workflows_inputs.Subtarget }} -
-      ${{ matrix.workflows_inputs.Target_Profile || matrix.workflows_inputs.Subtarget }}
+      ${{ needs.runner-image.outputs.use_container == 'true' && 'Container' || 'Non-container' }} -
+      ${{ needs.runner-image.outputs.openwrt_branch }} -
+      ${{ needs.runner-image.outputs.target_system }} -
+      ${{ needs.runner-image.outputs.subtarget }} -
+      ${{ needs.runner-image.outputs.target_profile }}
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     container:
       # An empty image selects the host runner.
-      image: ${{ matrix.use_container && 'ubuntu:devel' || '' }}
+      image: ${{ needs.runner-image.outputs.use_container == 'true' && 'ubuntu:devel' || '' }}
       options: >-
         --privileged
         --user=0:0
@@ -264,7 +237,7 @@ jobs:
         - /lib/modules:/lib/modules:ro
         - /var/run/docker.sock:/var/run/docker.sock
     env:
-      custom_env: ${{ matrix.custom_env }}
+      custom_env: ${{ needs.runner-image.outputs.custom_env }}
       # ========= Toolchain Environment Variables ==========
       # ----- gcc -----
       gcc_purge: false
@@ -287,8 +260,8 @@ jobs:
       qemu_install: false
       # ========= Workspace Environment Variables ==========
       # ----- Repository -----
-      REPO_target: "${{ matrix.openwrt_repo }}"
-      REPO_target_branch: "${{ matrix.openwrt_branch }}"
+      REPO_target: "${{ needs.runner-image.outputs.openwrt_repo }}"
+      REPO_target_branch: "${{ needs.runner-image.outputs.openwrt_branch }}"
       REPO_self: "https://github.com/${{ github.repository }}"
       REPO_self_branch: "main"
       # ----- Build Path -----
@@ -299,47 +272,11 @@ jobs:
       PATH_self: "/builder/self"
       MD_release: "/builder/release.md"
       # PATH_patches: "/builder/target/patches"
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        include: ${{ fromJSON(needs.runner-image.outputs.build_matrix) }}
-        # Disabled build targets (not included in the level matrix):
-          # - {
-          #     openwrt_repo: "https://github.com/openwrt/openwrt.git",
-          #     openwrt_branch: "main",
-          #     workflows_inputs:
-          #       {
-          #         Target_System: "MediaTek_Ralink_ARM",
-          #         Subtarget: "MT798x",
-          #         Target_Profile: "MT798x_docker",
-          #       },
-          #   }
-          # - {
-          #     openwrt_repo: "https://github.com/hanwckf/immortalwrt-mt798x.git",
-          #     openwrt_branch: "openwrt-21.02",
-          #     workflows_inputs:
-          #       {
-          #         Target_System: "MediaTek_Ralink_ARM",
-          #         Subtarget: "MT798x",
-          #         Target_Profile: "immortalwrt-mt798x_7981",
-          #       },
-          #   }
-          # - {
-          #     openwrt_repo: "https://github.com/hanwckf/immortalwrt-mt798x.git",
-          #     openwrt_branch: "openwrt-21.02",
-          #     workflows_inputs:
-          #       {
-          #         Target_System: "MediaTek_Ralink_ARM",
-          #         Subtarget: "MT798x",
-          #         Target_Profile: "immortalwrt-mt798x_7986",
-          #       },
-          #   }
     steps:
       # ========== Pre: Settings ==========
       - name: Verify build execution mode
         env:
-          USE_CONTAINER: ${{ matrix.use_container }}
+          USE_CONTAINER: ${{ needs.runner-image.outputs.use_container }}
           JOB_CONTAINER_ID: ${{ job.container.id }}
         run: |
           if [[ "$USE_CONTAINER" == true && -n "$JOB_CONTAINER_ID" ]] ||
@@ -355,7 +292,7 @@ jobs:
         run: |
           echo -e "Current working directory: $(pwd)"
 
-          if [[ "${{ matrix.workflows_inputs.Target_System }}" == "MediaTek_Ralink_ARM" ]]; then
+          if [[ "${{ needs.runner-image.outputs.target_system }}" == "MediaTek_Ralink_ARM" ]]; then
             echo "gcc_aarch64=true" | tee -a "${GITHUB_ENV}"
           else
             echo "gcc_aarch64=false" | tee -a "${GITHUB_ENV}"
@@ -370,20 +307,10 @@ jobs:
           echo -e "Current working directory: $(pwd)"
 
           # ========== Openwrt make menuconfig ==========
-          Target_System="${{ matrix.workflows_inputs.Target_System }}"
-          Subtarget="${{ matrix.workflows_inputs.Subtarget }}"
-          Target_Profile="${{ matrix.workflows_inputs.Target_Profile }}"
-          if [[ -z "$Target_Profile" ]]; then
-            Target_Profile="$Subtarget"
-          fi
+          Target_System="${{ needs.runner-image.outputs.target_system }}"
+          Subtarget="${{ needs.runner-image.outputs.subtarget }}"
+          Target_Profile="${{ needs.runner-image.outputs.target_profile }}"
 
-          # ========== Set OpenWrt repo branch (sanitize URL) ==========
-          _repo_in="${{ matrix.openwrt_repo }}"
-          if [[ "${_repo_in}" =~ ^https?:// ]]; then
-            REPO_target="${_repo_in}"
-          else
-            REPO_target="https://${_repo_in}"
-          fi
           REPO_self_owner="${{ github.repository_owner }}"
 
           # ===== Align with indocker workspace (/builder) =====
@@ -455,11 +382,10 @@ jobs:
 
           df -hT ${PWD}
 
-      - name: Verify Custom profile exists
-        if: ${{ matrix.build_level == 'Custom' }}
+      - name: Verify target profile exists
         run: |
           if [[ ! -f "$diy_config" ]]; then
-            echo 'Custom profile configuration not found' >&2
+            echo 'Target profile configuration not found' >&2
             exit 1
           fi
 
@@ -569,7 +495,7 @@ jobs:
           cat ./.config
 
       - name: Verify Nokia single-device configuration
-        if: ${{ matrix.workflows_inputs.Target_Profile == 'nokia_ea0326gmp' }}
+        if: ${{ needs.runner-image.outputs.target_profile == 'nokia_ea0326gmp' }}
         working-directory: ${{ env.PATH_target }}
         run: |
           make defconfig
@@ -623,7 +549,7 @@ jobs:
           make -j$(($(nproc) + 1)) V=s
 
       - name: Verify Nokia firmware image
-        if: ${{ matrix.workflows_inputs.Target_Profile == 'nokia_ea0326gmp' }}
+        if: ${{ needs.runner-image.outputs.target_profile == 'nokia_ea0326gmp' }}
         working-directory: ${{ env.PATH_target }}
         run: |
           image=$(find bin/targets/mediatek/filogic -maxdepth 1 -type f -name '*nokia_ea0326gmp*sysupgrade.itb' -print -quit)
@@ -755,8 +681,8 @@ jobs:
           timestamp: ${{ steps.output.outputs.timestamp }}
           version_kernel: ${{ steps.version-kernel.outputs.version }}
         with:
-          name: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
-          tag: "${{ matrix.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
+          name: "${{ needs.runner-image.outputs.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
+          tag: "${{ needs.runner-image.outputs.openwrt_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
           artifacts: "${{ env.PATH_output }}/*"
           allowUpdates: true
           removeArtifacts: false
