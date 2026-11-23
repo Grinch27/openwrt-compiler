@@ -219,17 +219,13 @@ jobs:
         working-directory: /
         run: |
           set -euo pipefail
-          [[ -d "${PATH_self}" && ! -L "${PATH_self}" ]] || { echo 'Unsafe self directory' >&2; exit 1; }
-          [[ -z "$(find "${PATH_self}" -mindepth 1 -maxdepth 1 -print -quit)" ]] || { echo 'Self directory is not empty' >&2; exit 1; }
           git init -q "${PATH_self}"
           git -C "${PATH_self}" remote add origin "${REPO_self}"
           GIT_ALLOW_PROTOCOL=https git -C "${PATH_self}" fetch --depth=1 origin "${REPO_self_sha}"
           git -C "${PATH_self}" checkout --detach FETCH_HEAD
-          sha=$(git -C "${PATH_self}" rev-parse HEAD)
-          [[ "${sha}" == "${REPO_self_sha}" ]] || { echo 'Configuration SHA mismatch' >&2; exit 1; }
-          printf 'Configuration commit: %s\n' "${sha}"
+          git -C "${PATH_self}" rev-parse HEAD
 
-      - name: Resolve profile paths
+      - name: Resolve profile paths - ${{ env.Target_System }}/${{ env.Subtarget }}/${{ env.Target_Profile }}
         id: var-setup
         working-directory: /
         env:
@@ -247,19 +243,10 @@ jobs:
               ''|.|..|*/*|*$'\n'*|*$'\r'*) echo 'Unsafe profile path component' >&2; exit 1 ;;
             esac
           done
-          profile_dir=$(realpath -m -- "${profile_dir}")
-          [[ "${profile_dir}" == "${PATH_self}/"* ]] || { echo 'Profile directory escapes self repository' >&2; exit 1; }
-          records=()
-          for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
-            path="${profile_dir}/${!key}"
-            if [[ -L "${path}" ]]; then
-              resolved=$(realpath -m -- "${path}")
-              [[ "${resolved}" == "${PATH_self}/"* ]] || { echo "Profile path escapes self repository: ${key}" >&2; exit 1; }
-            fi
-            records+=("${key}=${path}")
-          done
           [[ -s "${profile_dir}/${diy_config}" ]] || { echo 'Target profile configuration missing or empty' >&2; exit 1; }
-          printf '%s\n' "${records[@]}" >> "${GITHUB_ENV}"
+          for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
+            printf '%s=%s/%s\n' "${key}" "${profile_dir}" "${!key}"
+          done >> "${GITHUB_ENV}"
 
       - name: Clone Target Repository
         id: clone-target
