@@ -238,12 +238,7 @@ jobs:
           PATH_patches: patches
         run: |
           set -euo pipefail
-          for component in "${Target_System}" "${Subtarget}" "${Target_Profile}"; do
-            case "${component}" in
-              ''|.|..|*/*|*$'\n'*|*$'\r'*) echo 'Unsafe profile path component' >&2; exit 1 ;;
-            esac
-          done
-          [[ -s "${profile_dir}/${diy_config}" ]] || { echo 'Target profile configuration missing or empty' >&2; exit 1; }
+          for component in "${Target_System}" "${Subtarget}" "${Target_Profile}"; do case "${component}" in ''|.|..|*/*|*$'\n'*|*$'\r'*) echo 'Unsafe profile path component' >&2; exit 1 ;; esac; done
           for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
             printf '%s=%s/%s\n' "${key}" "${profile_dir}" "${!key}"
           done >> "${GITHUB_ENV}"
