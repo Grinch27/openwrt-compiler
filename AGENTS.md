@@ -529,7 +529,7 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 正式编译采用两个职责分离的工作流：
 
 - `.github/workflows/call-build_schedule.yml`：唯一 Cron 调度入口，负责计划时刻、静态 YAML `strategy.matrix.include` 编译目标集合，以及每周上游稳定分支查询。
-- `.github/workflows/call-build_allinone.yml`：唯一单目标编译执行器，支持 `workflow_call`、`workflow_dispatch` 和原有路径过滤的 `main` push；负责统一参数校验、动态 Runner 解析、编译环境初始化、编译、验证和 Release 发布。一次调用仅构建一个目标。
+- `.github/workflows/call-build_allinone.yml`：唯一单目标编译执行器，支持 `workflow_call`、`workflow_dispatch` 和原有路径过滤的 `main` push；负责声明式参数默认值、动态 Runner 解析、编译环境初始化、编译、验证和 Release 发布。一次调用仅构建一个目标。
 
 历史编译入口存放在 `.github/archive/workflows/`。
 
@@ -538,10 +538,12 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 - 每日计划为 `0 21 * * *`（UTC）：官方 OpenWrt `main` / MediaTek_Ralink_ARM / MT798x。
 - 每周计划为 `0 0 * * 1`（UTC）：官方最新版本系列分支 / MediaTek_Ralink_ARM / MT798x，以及 `main` / x86 / x86_64、`main` / MediaTek_Ralink_MIPS / MT7621。最新版本系列分支由调度工作流的 `resolve-stable-branch` Job 查询匹配 `openwrt-<major>.<minor>` 的远端分支并按版本排序取得；查询失败或无匹配时，整个每周 Matrix 不执行。
 - 每日和每周均使用原生静态 YAML Matrix；通过同仓库 `jobs.<job_id>.uses` 和 `with` 传递具体目标参数。Cron 与对应 Job 条件必须同步；未匹配的 Cron 不得触发默认构建。
-- 主工作流不得重新引入 Cron、Tier / Custom 等级分类、`@stable` 等分支占位标识、内部编译 Matrix、`jq` / `fromJSON()` 动态目标矩阵或定时目标集合。主工作流只接受真实 Git 分支名称并校验其格式。
+- 主工作流不得重新引入 Cron、Tier / Custom 等级分类、`@stable` 等分支占位标识、内部编译 Matrix、`jq` / `fromJSON()` 动态目标矩阵或定时目标集合。传入实际 Git 分支名称，不使用内部占位符。
 - `resolve-runner-image` 属于编译环境初始化，必须保留在主工作流中，不迁入调度工作流。调度层的 `resolve-stable-branch` 是非编译引导 Job，按已批准的项目架构直接使用 `ubuntu-latest`，不为该查询额外解析 Runner；这是 Part I 第 4 节 Runner 规范在本项目的明确局部例外，不推广到编译 Job。
 - 自动调度及直接匹配路径的 main push 默认使用 Container；后者保持官方 `main` / MediaTek_Ralink_ARM / MT798x / nokia_ea0326gmp。参数化手动调用默认 `Use_Container=true`，设为 `false` 可选择 Non-container。可复用调用支持同一参数接口，保留显式 `false`，不得使用会吞掉 false 的默认值表达式。
-- 保留 `OpenWrt_Repository`、`OpenWrt_Branch`、`Target_System`、`Subtarget`、`Target_Profile`、`Use_Container`、`custom_env` 接口及合法性校验；空 Profile 按 Subtarget 解析，所有目标均要求实际配置文件存在。
+- 保留 `OpenWrt_Repository`、`OpenWrt_Branch`、`Target_System`、`Subtarget`、`Target_Profile`、`Use_Container`、`custom_env` 接口和七个 Job Outputs；通过 `runner-image.env` 声明默认值，Outputs 直接读取 env。不得恢复独立 `resolve-target` 业务参数校验或规范化层。空 Profile 按 Subtarget 解析（直接 Nokia Push 除外）；必须保留路径范围、环境文件注入、HTTPS Transport 和 Shell 引用等安全防护，以及共享 `input-custom` 的工具链覆盖校验。
+- 配置仓库按触发运行的 `github.sha` 固定版本，在磁盘初始化后克隆并检查 Profile 配置存在性，再克隆上游完整历史；记录配置和源码 Commit。
+- 主工作流仅在所有 DIY 修改后统一执行一次 `make defconfig`，失败须停止；DIY P2 只负责修改，不再执行 `make oldconfig` 或 `make defconfig`。保留 Nokia 专属配置和固件验证。
 - 不得未经批准重新合并调度与编译职责、改变 Cron、目标集合、默认参数、Push 路径条件、发布策略或新增 `repository_dispatch`。两个工作流的调用契约变更须在同一提交中完成，并验证调用关系及发布权限。
 
 所有触发方式采用统一 Release Name（branch+kernel+Target_System+Subtarget+Target_Profile）和 Git Tag（branch+kernel+Target_Profile）。同 Tag 更新既有 Release，手动或其他可复用调用可能覆盖同名构建附件，须使用可信源码及明确的目标配置。变更主工作流可能触发 Nokia 自动编译及 Release 更新；提交前必须明确该影响及授权。当前双工作流架构已提交，但定时触发、双环境完整构建及 Release 发布的实际验收须以对应运行证据为准。

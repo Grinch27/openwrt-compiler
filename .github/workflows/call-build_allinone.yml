@@ -9,7 +9,10 @@ name: Call Build (All in One)
 # Direct main pushes build Nokia EA0326GMP and may update its release.
 # All targets require their local profile configuration; verify new targets before scheduling.
 # Review future runner-resolution reuse separately; retain dynamic runner selection.
-# R01-R03: preserve resolver inputs, outputs and validation; R04 whitelist study is separate.
+# D01-D04: declarative defaults; preserve seven outputs and typed boolean inputs.
+# Risk: trusted HTTPS build sources only; shared input-custom validates overrides.
+# Verify hosted env outputs, exact config SHA, clean clone paths and defconfig equivalence.
+# Unknown: historical forks and indirect DIY dependencies require real build acceptance.
 # Variable setup: preserve exported names and paths; verify both execution modes and shared env-indocker.
 # Verify direct push, reusable caller, explicit false, invalid inputs and hosted release behavior.
 
@@ -23,10 +26,10 @@ on:
   workflow_dispatch:
     inputs:
       OpenWrt_Repository:
-        description: "repository (HTTPS or host/path)"
+        description: "repository (full HTTPS URL)"
         type: string
         required: false
-        default: "git.openwrt.org/openwrt/openwrt.git"
+        default: "https://git.openwrt.org/openwrt/openwrt.git"
       OpenWrt_Branch:
         description: "Git branch name"
         type: string
@@ -121,84 +124,24 @@ jobs:
   runner-image:
     name: ubuntu-latest - runner-image
     runs-on: ubuntu-latest
+    env:
+      openwrt_repo: ${{ inputs.OpenWrt_Repository || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'https://github.com/openwrt/openwrt.git' || 'https://git.openwrt.org/openwrt/openwrt.git') }}
+      openwrt_branch: ${{ inputs.OpenWrt_Branch || 'main' }}
+      target_system: ${{ inputs.Target_System || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'MediaTek_Ralink_ARM' || 'x86') }}
+      subtarget: ${{ inputs.Subtarget || ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'MT798x' || 'x86_64') }}
+      target_profile: ${{ (github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) && 'nokia_ea0326gmp' || inputs.Target_Profile || inputs.Subtarget || 'x86_64' }}
+      use_container: ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'true' || 'false' }}
+      custom_env: ${{ inputs.custom_env || '' }}
     outputs:
       RUNNER_IMAGE: ${{ steps.resolve-runner-image.outputs.RUNNER_IMAGE }}
-      openwrt_repo: ${{ steps.resolve-target.outputs.openwrt_repo }}
-      openwrt_branch: ${{ steps.resolve-target.outputs.openwrt_branch }}
-      target_system: ${{ steps.resolve-target.outputs.target_system }}
-      subtarget: ${{ steps.resolve-target.outputs.subtarget }}
-      target_profile: ${{ steps.resolve-target.outputs.target_profile }}
-      use_container: ${{ steps.resolve-target.outputs.use_container }}
-      custom_env: ${{ steps.resolve-target.outputs.custom_env }}
+      openwrt_repo: ${{ env.openwrt_repo }}
+      openwrt_branch: ${{ env.openwrt_branch }}
+      target_system: ${{ env.target_system }}
+      subtarget: ${{ env.subtarget }}
+      target_profile: ${{ env.target_profile }}
+      use_container: ${{ env.use_container }}
+      custom_env: ${{ env.custom_env }}
     steps:
-      - name: Resolve build target
-        id: resolve-target
-        env:
-          openwrt_repo: ${{ inputs.OpenWrt_Repository }}
-          openwrt_branch: ${{ inputs.OpenWrt_Branch }}
-          target_system: ${{ inputs.Target_System }}
-          subtarget: ${{ inputs.Subtarget }}
-          target_profile: ${{ inputs.Target_Profile }}
-          use_container: ${{ inputs.Use_Container }}
-          custom_env: ${{ inputs.custom_env }}
-        run: |
-          set -euo pipefail
-
-          die() {
-            printf '::error::%s\n' "$1" >&2
-            exit 1
-          }
-
-          # A direct push to this workflow retains the existing Nokia build.
-          # Reusable workflows see the caller's event and workflow reference.
-          if [[ "$GITHUB_EVENT_NAME" == push &&
-                "$GITHUB_WORKFLOW_REF" == "$GITHUB_REPOSITORY/.github/workflows/call-build_allinone.yml@refs/heads/main" ]]; then
-            openwrt_repo="https://github.com/openwrt/openwrt.git"
-            openwrt_branch=main
-            target_system=MediaTek_Ralink_ARM
-            subtarget=MT798x
-            target_profile=nokia_ea0326gmp
-            use_container=true
-            custom_env=""
-          fi
-
-          case "$use_container" in
-            true|false) ;;
-            *) die 'Invalid Use_Container value' ;;
-          esac
-          [[ "$openwrt_repo" =~ ^(https://)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$ ]] || die 'Invalid repository URL'
-          [[ "/${openwrt_repo#https://}/" != *'/../'* && "/${openwrt_repo#https://}/" != *'/./'* ]] || die 'Invalid repository path'
-          openwrt_repo="https://${openwrt_repo#https://}"
-          [[ "$openwrt_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$openwrt_branch" >/dev/null || die 'Invalid branch'
-          case "$target_system/$subtarget" in
-            x86/x86_64|MediaTek_Ralink_ARM/MT798x|MediaTek_Ralink_MIPS/MT7620|MediaTek_Ralink_MIPS/MT7621) ;;
-            *) die 'Invalid target/subtarget combination' ;;
-          esac
-          [[ -z "$target_profile" || "$target_profile" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die 'Invalid profile'
-          if [[ -n "$custom_env" ]]; then
-            [[ "$custom_env" =~ ^[a-z_]+=[a-z0-9]+(\;[a-z_]+=[a-z0-9]+)*$ ]] || die 'Invalid custom_env syntax'
-            declare -A seen=()
-            IFS=';' read -r -a assignments <<< "$custom_env"
-            for assignment in "${assignments[@]}"; do
-              key=${assignment%%=*}
-              value=${assignment#*=}
-              [[ -z "${seen[$key]+x}" ]] || die 'Duplicate custom_env key'
-              seen[$key]=1
-              case "$key" in
-                gcc_purge|gcc_install|gcc_switch|clang_purge|clang_install|clang_switch|jdk_purge|jdk_install|jdk_switch|docker_install|qemu_install)
-                  [[ "$value" == true || "$value" == false ]] || die 'Invalid boolean' ;;
-                gcc_version|clang_version|jdk_version)
-                  [[ "$value" =~ ^[1-9][0-9]{0,2}$ ]] || die 'Invalid toolchain version' ;;
-                *) die 'Unsupported custom_env key' ;;
-              esac
-            done
-          fi
-
-          target_profile=${target_profile:-$subtarget}
-          for key in openwrt_repo openwrt_branch target_system subtarget target_profile use_container custom_env; do
-            printf '%s=%s\n' "$key" "${!key}"
-          done >> "$GITHUB_OUTPUT"
-
       - name: Resolve runner-image
         id: resolve-runner-image
         uses: Grinch27/github-actions/.github/actions/resolve-runner-image@main
@@ -264,7 +207,8 @@ jobs:
       REPO_target: "${{ needs.runner-image.outputs.openwrt_repo }}"
       REPO_target_branch: "${{ needs.runner-image.outputs.openwrt_branch }}"
       REPO_self: "https://github.com/${{ github.repository }}"
-      REPO_self_branch: "main"
+      REPO_self_branch: ${{ github.ref_name }}
+      REPO_self_sha: ${{ github.sha }}
       REPO_self_owner: ${{ github.repository_owner }}
       # ----- Build Target -----
       Target_System: ${{ needs.runner-image.outputs.target_system }}
@@ -293,67 +237,69 @@ jobs:
             exit 1
           fi
 
-      - name: (Var) environment variable setup
-        id: var-setup
-        working-directory: /
-        run: |
-          set -euo pipefail
-          profile_dir="${PATH_self}/${Target_System}/${Subtarget}/${Target_Profile}"
-          printf '%s\n' \
-            "diy_config=${profile_dir}/${Target_Profile}.config" \
-            "diy_feeds=${profile_dir}/feeds.conf.default" \
-            "diy_p1_sh=${profile_dir}/diy-part1.sh" \
-            "diy_p2_sh=${profile_dir}/diy-part2.sh" \
-            "diy_files=${profile_dir}/files" \
-            "PATH_patches=${profile_dir}/patches" | tee -a "$GITHUB_ENV"
-
       # ========== General Environment Setup: Start ==========
       - name: Prepare build environment
         id: docker-workspace
         uses: Grinch27/github-actions/.github/actions/env-indocker@main
 
       # ========== General Environment Setup: End ==========
+      - name: Clone self at triggering commit
+        id: clone-self
+        working-directory: /
+        run: |
+          set -euo pipefail
+          # The disk initializer may create an empty PATH_self; never erase it.
+          [[ ! -L "$PATH_self" ]] || { echo 'Unsafe self directory' >&2; exit 1; }
+          if [[ -d "$PATH_self" && -n "$(find "$PATH_self" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+            echo 'Self directory is not empty' >&2
+            exit 1
+          fi
+          git init "$PATH_self"
+          git -C "$PATH_self" remote add origin "$REPO_self"
+          GIT_ALLOW_PROTOCOL=https git -C "$PATH_self" fetch --depth=1 origin "$REPO_self_sha"
+          git -C "$PATH_self" checkout --detach FETCH_HEAD
+          [[ "$(git -C "$PATH_self" rev-parse HEAD)" == "$REPO_self_sha" ]]
+          git -C "$PATH_self" rev-parse HEAD
+
+      - name: (Var) environment variable setup
+        id: var-setup
+        working-directory: /
+        run: |
+          set -euo pipefail
+          # Safety only: prevent path traversal and environment-file injection.
+          for component in "$Target_System" "$Subtarget" "$Target_Profile"; do
+            case "$component" in
+              ''|.|..|*/*|*$'\n'*|*$'\r'*) echo 'Unsafe profile path component' >&2; exit 1 ;;
+            esac
+          done
+          profile_dir="${PATH_self}/${Target_System}/${Subtarget}/${Target_Profile}"
+          diy_config="${profile_dir}/${Target_Profile}.config"
+          diy_feeds="${profile_dir}/feeds.conf.default"
+          diy_p1_sh="${profile_dir}/diy-part1.sh"
+          diy_p2_sh="${profile_dir}/diy-part2.sh"
+          diy_files="${profile_dir}/files"
+          PATH_patches="${profile_dir}/patches"
+          for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
+            resolved=$(realpath -m -- "${!key}")
+            [[ "$resolved" == "$PATH_self/"* ]] || { echo 'Profile path escapes self repository' >&2; exit 1; }
+          done
+          [[ -f "$diy_config" ]] || { echo 'Target profile configuration not found' >&2; exit 1; }
+          for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
+            printf '%s=%s\n' "$key" "${!key}"
+          done >> "$GITHUB_ENV"
+
       - name: Clone Target Repository
         id: clone-target
         working-directory: ${{ env.PATH_build }}
         run: |
-          echo -e "Current working directory: $(pwd)"
-
-          rm -rf ${PATH_target}
-          mkdir -p ${PATH_target}
-
-          # Clone target repository: without --depth=1
-          git clone ${REPO_target} ${PATH_target} --single-branch --branch=${REPO_target_branch} 
-          echo -e "REPO_target: [ ${REPO_target} ]\nBRANCH: [ ${REPO_target_branch} ]"
-
-          df -hT ${PWD}
-
-      - name: Version of Target Repo
-        id: git-rev
-        uses: Grinch27/github-actions/.github/actions/git-rev@main
-        with:
-          path_target: ${{ env.PATH_target }}
-
-      - name: Clone self
-        id: clone-self
-        working-directory: /
-        run: |
-          echo -e "Current working directory: $(pwd)"
-
-          rm -rf ${PATH_self}
-          mkdir -p ${PATH_self}
-
-          git clone ${REPO_self} ${PATH_self} --single-branch --depth=1 --branch=${REPO_self_branch}
-          echo -e "REPO_self: [ ${REPO_self} ]\nBRANCH: [ ${REPO_self_branch} ]"
-
-          df -hT ${PWD}
-
-      - name: Verify target profile exists
-        run: |
-          if [[ ! -f "$diy_config" ]]; then
-            echo 'Target profile configuration not found' >&2
-            exit 1
-          fi
+          set -euo pipefail
+          # Accept trusted full HTTPS URLs only; disallow local/exec transports.
+          [[ "$REPO_target" == https://* ]] || { echo 'Repository must use HTTPS' >&2; exit 1; }
+          [[ ! -L "$PATH_target" ]] || { echo 'Unsafe target directory' >&2; exit 1; }
+          GIT_ALLOW_PROTOCOL=https git clone --single-branch \
+            --branch="$REPO_target_branch" -- "$REPO_target" "$PATH_target"
+          git -C "$PATH_target" rev-parse HEAD
+          df -hT "$PATH_target"
 
       # ========== Compile: Start ==========
       - name: (feeds.conf.default) Load custom feeds
@@ -362,7 +308,7 @@ jobs:
           echo -e "Current working directory: $(pwd)"
           if [[ -e "${diy_feeds}" && ! "${diy_feeds}" -ef "${PATH_target}/feeds.conf.default" ]]; then
             echo -e "diy_feeds: ${diy_feeds}"
-            cp -f ${diy_feeds} ${PATH_target}/feeds.conf.default
+            cp -f -- "$diy_feeds" "$PATH_target/feeds.conf.default"
           fi
 
       - name: (DIY_P1.sh) after load feeds, before update feeds
@@ -373,9 +319,9 @@ jobs:
           echo -e "Current working directory: $(pwd)"
           if [[ -e "${file_script}" ]]; then
             echo -e "file_script: ${file_script}"
-            chmod +x ${file_script}
-            bash ${file_script}
-            cat ${file_script}
+            chmod +x -- "$file_script"
+            bash -- "$file_script"
+            cat -- "$file_script"
           fi
 
       - name: Update feeds
@@ -401,26 +347,17 @@ jobs:
 
           mkdir -p ./files/etc/config
           if [[ -e "${diy_files}" ]]; then
-              cp -rf ${diy_files}/* ./files/
+              cp -rf -- "$diy_files"/* ./files/
           fi
 
       - name: (.config) Load custom configuration
         id: config-custom
         working-directory: ${{ env.PATH_target }}
         run: |
-          echo -e "Current working directory: $(pwd)"
-
-          if [[ -e "${diy_config}" && ! "${diy_config}" -ef "${PATH_target}/.config" ]]; then
-            echo -e "diy_config: ${diy_config}"
-            cp -f ${diy_config} ${PATH_target}/.config
-          else
-            echo ".config file not found"
+          set -euo pipefail
+          if [[ ! "$diy_config" -ef "$PATH_target/.config" ]]; then
+            cp -f -- "$diy_config" "$PATH_target/.config"
           fi
-          # yes "" |
-          set +e
-          make oldconfig
-          set -e
-          cat ./.config
 
       - name: (patches) Apply patches
         id: patch
@@ -432,7 +369,7 @@ jobs:
           printf "Current working directory: %s\n" "$(pwd)"
 
           if [ -d "${PATH_patches}" ]; then
-            find "${PATH_patches}" -type f -name '*.patch' -print0 | sort -z | xargs -I % -t -0 -n 1 sh -c "cat '%' | patch -d './' -B --merge -p1 --forward"
+            find "${PATH_patches}" -type f -name '*.patch' -print0 | sort -z | xargs -0 -r -t -n 1 sh -c 'patch -d ./ -B --merge -p1 --forward < "$1"' _
           fi
 
       - name: (DIY_P2.sh) after install feeds, before download package
@@ -443,28 +380,25 @@ jobs:
           echo -e "Current working directory: $(pwd)"
           if [[ -e "${file_script}" ]]; then
             echo -e "file_script: ${file_script}"
-            chmod +x ${file_script}
-            bash ${file_script}
-            cat ${file_script}
+            chmod +x -- "$file_script"
+            bash -- "$file_script"
+            cat -- "$file_script"
           fi
 
-      - name: (.config) Update config
+      - name: Generate OpenWrt configuration
         id: config-update
         working-directory: ${{ env.PATH_target }}
         run: |
-          echo -e "Current working directory: $(pwd)"
-          echo "make oldconfig: update .config file..."
-          # yes "" | 
-          set +e
-          make oldconfig
-          set -e
-          cat ./.config
+          set -euo pipefail
+          test -s .config
+          make defconfig
+          test -s .config
+          cat .config
 
       - name: Verify Nokia single-device configuration
         if: ${{ needs.runner-image.outputs.target_profile == 'nokia_ea0326gmp' }}
         working-directory: ${{ env.PATH_target }}
         run: |
-          make defconfig
           grep -Fxq 'CONFIG_TARGET_mediatek=y' .config
           grep -Fxq 'CONFIG_TARGET_mediatek_filogic=y' .config
           grep -Fxq 'CONFIG_TARGET_mediatek_filogic_DEVICE_nokia_ea0326gmp=y' .config
@@ -615,6 +549,8 @@ jobs:
           record_to_markdown "Timestamp" "- [x] $(date +"%Y-%m-%d %H:%M:%S %z")"
           record_to_markdown "Repository" "- [x] ${REPO_target}"
           record_to_markdown "Repository Branch" "- [x] ${REPO_target_branch}"
+          record_to_markdown "Configuration Commit" "- [x] ${REPO_self_sha}"
+          record_to_markdown "Source Commit" "- [x] $(git rev-parse HEAD)"
 
           declare -A file_records=(
             ["${diy_feeds}"]="feeds setting|bash"
