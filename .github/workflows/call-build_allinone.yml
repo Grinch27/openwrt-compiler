@@ -10,6 +10,7 @@ name: Call Build (All in One)
 # All targets require their local profile configuration; verify new targets before scheduling.
 # Review future runner-resolution reuse separately; retain dynamic runner selection.
 # R01-R03: preserve resolver inputs, outputs and validation; R04 whitelist study is separate.
+# Variable setup: preserve exported names and paths; verify both execution modes and shared env-indocker.
 # Verify direct push, reusable caller, explicit false, invalid inputs and hosted release behavior.
 
 on:
@@ -244,7 +245,7 @@ jobs:
       gcc_install: false
       gcc_switch: false
       gcc_version: ""
-      gcc_aarch64: false
+      gcc_aarch64: ${{ needs.runner-image.outputs.target_system == 'MediaTek_Ralink_ARM' && 'true' || 'false' }}
       # ----- clang -----
       clang_purge: false
       clang_install: false
@@ -264,6 +265,11 @@ jobs:
       REPO_target_branch: "${{ needs.runner-image.outputs.openwrt_branch }}"
       REPO_self: "https://github.com/${{ github.repository }}"
       REPO_self_branch: "main"
+      REPO_self_owner: ${{ github.repository_owner }}
+      # ----- Build Target -----
+      Target_System: ${{ needs.runner-image.outputs.target_system }}
+      Subtarget: ${{ needs.runner-image.outputs.subtarget }}
+      Target_Profile: ${{ needs.runner-image.outputs.target_profile }}
       # ----- Build Path -----
       PATH_build: "/builder"
       PATH_target: "/builder/target"
@@ -287,59 +293,19 @@ jobs:
             exit 1
           fi
 
-      - name: (Env) GCC Cross-Compiler
-        id: env-gcc_cross
-        run: |
-          echo -e "Current working directory: $(pwd)"
-
-          if [[ "${{ needs.runner-image.outputs.target_system }}" == "MediaTek_Ralink_ARM" ]]; then
-            echo "gcc_aarch64=true" | tee -a "${GITHUB_ENV}"
-          else
-            echo "gcc_aarch64=false" | tee -a "${GITHUB_ENV}"
-          fi
-
-          echo "gcc_cross: ${{ env.gcc_aarch64 }}"
-
       - name: (Var) environment variable setup
         id: var-setup
         working-directory: /
         run: |
-          echo -e "Current working directory: $(pwd)"
-
-          # ========== Openwrt make menuconfig ==========
-          Target_System="${{ needs.runner-image.outputs.target_system }}"
-          Subtarget="${{ needs.runner-image.outputs.subtarget }}"
-          Target_Profile="${{ needs.runner-image.outputs.target_profile }}"
-
-          REPO_self_owner="${{ github.repository_owner }}"
-
-          # ===== Align with indocker workspace (/builder) =====
-          DIR_profile="${Target_System}/${Subtarget}/${Target_Profile}"
-
-          # DIY Files
-          diy_config="${PATH_self}/${DIR_profile}/${Target_Profile}.config"
-          diy_feeds="${PATH_self}/${DIR_profile}/feeds.conf.default"
-          diy_p1_sh="${PATH_self}/${DIR_profile}/diy-part1.sh"
-          diy_p2_sh="${PATH_self}/${DIR_profile}/diy-part2.sh"
-          diy_files="${PATH_self}/${DIR_profile}/files"
-          PATH_patches="${PATH_self}/${DIR_profile}/patches"
-
-          # ========== GITHUB_ENV ==========
-          env_vars=(
-            "REPO_self_owner"
-            "Target_System"
-            "Subtarget"
-            "Target_Profile"
-            "diy_config"
-            "diy_feeds"
-            "diy_p1_sh"
-            "diy_p2_sh"
-            "diy_files"
-            "PATH_patches"
-          )
-          for var in "${env_vars[@]}"; do
-            echo "${var}=${!var}" | tee -a "${GITHUB_ENV}"
-          done
+          set -euo pipefail
+          profile_dir="${PATH_self}/${Target_System}/${Subtarget}/${Target_Profile}"
+          printf '%s\n' \
+            "diy_config=${profile_dir}/${Target_Profile}.config" \
+            "diy_feeds=${profile_dir}/feeds.conf.default" \
+            "diy_p1_sh=${profile_dir}/diy-part1.sh" \
+            "diy_p2_sh=${profile_dir}/diy-part2.sh" \
+            "diy_files=${profile_dir}/files" \
+            "PATH_patches=${profile_dir}/patches" | tee -a "$GITHUB_ENV"
 
       # ========== General Environment Setup: Start ==========
       - name: Prepare build environment
