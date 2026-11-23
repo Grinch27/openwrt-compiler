@@ -389,7 +389,7 @@ jobs:
           version=''
           while IFS= read -r -d '' package; do
             filename="${package##*/}"
-            [[ "${filename}" =~ ^kernel[-_]([0-9]+\.[0-9]+\.[0-9]+)([-_.]|$) ]] || {
+            [[ "${filename}" =~ ^kernel[-_]([0-9]+\.[0-9]+\.[0-9]+)([-_.~]|$) ]] || {
               printf 'Cannot parse kernel version: %s\n' "${filename}" >&2
               exit 1
             }
