@@ -9,6 +9,8 @@ name: Call Build (All in One)
 # Direct main pushes build Nokia EA0326GMP and may update its release.
 # All targets require their local profile configuration; verify new targets before scheduling.
 # Review future runner-resolution reuse separately; retain dynamic runner selection.
+# R01-R03: preserve resolver inputs, outputs and validation; R04 whitelist study is separate.
+# Verify direct push, reusable caller, explicit false, invalid inputs and hosted release behavior.
 
 on:
   push:
@@ -131,72 +133,70 @@ jobs:
       - name: Resolve build target
         id: resolve-target
         env:
-          INPUT_REPO: ${{ inputs.OpenWrt_Repository }}
-          INPUT_BRANCH: ${{ inputs.OpenWrt_Branch }}
-          INPUT_SYSTEM: ${{ inputs.Target_System }}
-          INPUT_SUBTARGET: ${{ inputs.Subtarget }}
-          INPUT_PROFILE: ${{ inputs.Target_Profile }}
-          INPUT_USE_CONTAINER: ${{ inputs.Use_Container }}
-          INPUT_CUSTOM_ENV: ${{ inputs.custom_env }}
+          openwrt_repo: ${{ inputs.OpenWrt_Repository }}
+          openwrt_branch: ${{ inputs.OpenWrt_Branch }}
+          target_system: ${{ inputs.Target_System }}
+          subtarget: ${{ inputs.Subtarget }}
+          target_profile: ${{ inputs.Target_Profile }}
+          use_container: ${{ inputs.Use_Container }}
+          custom_env: ${{ inputs.custom_env }}
         run: |
           set -euo pipefail
+
+          die() {
+            printf '::error::%s\n' "$1" >&2
+            exit 1
+          }
 
           # A direct push to this workflow retains the existing Nokia build.
           # Reusable workflows see the caller's event and workflow reference.
           if [[ "$GITHUB_EVENT_NAME" == push &&
                 "$GITHUB_WORKFLOW_REF" == "$GITHUB_REPOSITORY/.github/workflows/call-build_allinone.yml@refs/heads/main" ]]; then
-            repo="https://github.com/openwrt/openwrt.git"
-            branch=main
-            system=MediaTek_Ralink_ARM
+            openwrt_repo="https://github.com/openwrt/openwrt.git"
+            openwrt_branch=main
+            target_system=MediaTek_Ralink_ARM
             subtarget=MT798x
-            profile=nokia_ea0326gmp
+            target_profile=nokia_ea0326gmp
             use_container=true
             custom_env=""
-          else
-            repo="$INPUT_REPO"
-            branch="$INPUT_BRANCH"
-            system="$INPUT_SYSTEM"
-            subtarget="$INPUT_SUBTARGET"
-            profile="$INPUT_PROFILE"
-            use_container="$INPUT_USE_CONTAINER"
-            custom_env="$INPUT_CUSTOM_ENV"
           fi
 
           case "$use_container" in
             true|false) ;;
-            *) echo 'Invalid Use_Container value' >&2; exit 1 ;;
+            *) die 'Invalid Use_Container value' ;;
           esac
-          [[ "$repo" =~ ^(https://)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$ ]] || { echo 'Invalid repository URL' >&2; exit 1; }
-          [[ "/${repo#https://}/" != *'/../'* && "/${repo#https://}/" != *'/./'* ]] || { echo 'Invalid repository path' >&2; exit 1; }
-          repo="https://${repo#https://}"
-          [[ "$branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$branch" >/dev/null || { echo 'Invalid branch' >&2; exit 1; }
-          case "$system/$subtarget" in
+          [[ "$openwrt_repo" =~ ^(https://)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$ ]] || die 'Invalid repository URL'
+          [[ "/${openwrt_repo#https://}/" != *'/../'* && "/${openwrt_repo#https://}/" != *'/./'* ]] || die 'Invalid repository path'
+          openwrt_repo="https://${openwrt_repo#https://}"
+          [[ "$openwrt_branch" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] && git check-ref-format --branch "$openwrt_branch" >/dev/null || die 'Invalid branch'
+          case "$target_system/$subtarget" in
             x86/x86_64|MediaTek_Ralink_ARM/MT798x|MediaTek_Ralink_MIPS/MT7620|MediaTek_Ralink_MIPS/MT7621) ;;
-            *) echo 'Invalid target/subtarget combination' >&2; exit 1 ;;
+            *) die 'Invalid target/subtarget combination' ;;
           esac
-          [[ -z "$profile" || "$profile" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || { echo 'Invalid profile' >&2; exit 1; }
+          [[ -z "$target_profile" || "$target_profile" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die 'Invalid profile'
           if [[ -n "$custom_env" ]]; then
-            [[ "$custom_env" =~ ^[a-z_]+=[a-z0-9]+(\;[a-z_]+=[a-z0-9]+)*$ ]] || { echo 'Invalid custom_env syntax' >&2; exit 1; }
+            [[ "$custom_env" =~ ^[a-z_]+=[a-z0-9]+(\;[a-z_]+=[a-z0-9]+)*$ ]] || die 'Invalid custom_env syntax'
             declare -A seen=()
             IFS=';' read -r -a assignments <<< "$custom_env"
             for assignment in "${assignments[@]}"; do
               key=${assignment%%=*}
               value=${assignment#*=}
-              [[ -z "${seen[$key]+x}" ]] || { echo 'Duplicate custom_env key' >&2; exit 1; }
+              [[ -z "${seen[$key]+x}" ]] || die 'Duplicate custom_env key'
               seen[$key]=1
               case "$key" in
                 gcc_purge|gcc_install|gcc_switch|clang_purge|clang_install|clang_switch|jdk_purge|jdk_install|jdk_switch|docker_install|qemu_install)
-                  [[ "$value" == true || "$value" == false ]] || { echo 'Invalid boolean' >&2; exit 1; } ;;
+                  [[ "$value" == true || "$value" == false ]] || die 'Invalid boolean' ;;
                 gcc_version|clang_version|jdk_version)
-                  [[ "$value" =~ ^[1-9][0-9]{0,2}$ ]] || { echo 'Invalid toolchain version' >&2; exit 1; } ;;
-                *) echo 'Unsupported custom_env key' >&2; exit 1 ;;
+                  [[ "$value" =~ ^[1-9][0-9]{0,2}$ ]] || die 'Invalid toolchain version' ;;
+                *) die 'Unsupported custom_env key' ;;
               esac
             done
           fi
 
-          profile=${profile:-$subtarget}
-          printf 'openwrt_repo=%s\nopenwrt_branch=%s\ntarget_system=%s\nsubtarget=%s\ntarget_profile=%s\nuse_container=%s\ncustom_env=%s\n' \
-            "$repo" "$branch" "$system" "$subtarget" "$profile" "$use_container" "$custom_env" >> "$GITHUB_OUTPUT"
+          target_profile=${target_profile:-$subtarget}
+          for key in openwrt_repo openwrt_branch target_system subtarget target_profile use_container custom_env; do
+            printf '%s=%s\n' "$key" "${!key}"
+          done >> "$GITHUB_OUTPUT"
 
       - name: Resolve runner-image
         id: resolve-runner-image
