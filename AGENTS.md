@@ -546,6 +546,8 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 - 主工作流 Bash 的普通具名变量使用 `${变量名}`，路径展开加双引号。共享环境 Action 在磁盘设置后创建工作目录。Profile 目录和相对文件名声明在步骤级 `env`，检出配置仓库后统一验证并导出绝对路径。可选的 Profile 文件和目录由检出内容提供。
 - DIY P1 和 P2 共用 Bash 执行逻辑。选配脚本缺失时跳过，执行失败时停止。Custom Files 复制整个目录内容，包含点文件。
 - 主工作流仅在所有 DIY 修改后统一执行一次 `make defconfig`，失败须停止；DIY P2 只负责修改，不再执行 `make oldconfig` 或 `make defconfig`。保留 `make dirclean`。
+- 发布前通过 `make -s val.BIN_DIR` 与 `make -s val.PACKAGE_DIR` 查询实际产物目录，限制于 `/builder` 工作区；校验非空固件和唯一内核版本，仅暂存 `BIN_DIR` 顶层常规文件和构建配置，不复制 `packages/`。
+- Release 说明写入失败必须中止发布；空内容过滤应正常返回，托管 Runner 完整编译及 Release 需另行验收。
 - 不得未经批准重新合并调度与编译职责、改变 Cron、目标集合、默认参数、Push 路径条件、发布策略或新增 `repository_dispatch`。两个工作流的调用契约变更须在同一提交中完成，并验证调用关系及发布权限。
 
 所有触发方式采用统一 Release Name（branch+kernel+Target_System+Subtarget+Target_Profile）和 Git Tag（branch+kernel+Target_Profile）。同 Tag 更新既有 Release，手动或其他可复用调用可能覆盖同名构建附件，须使用可信源码及明确的目标配置。变更主工作流可能触发 Nokia 自动编译及 Release 更新；提交前必须明确该影响及授权。当前双工作流架构已提交，但定时触发、双环境完整构建及 Release 发布的实际验收须以对应运行证据为准。

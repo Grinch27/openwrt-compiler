@@ -201,7 +201,6 @@ jobs:
       PATH_build: "/builder"
       PATH_target: &path_target "/builder/target"
       PATH_output: "/builder/output"
-      PATH_backup: "/builder/backup"
       PATH_self: "/builder/self"
       MD_release: "/builder/release.md"
     defaults:
@@ -220,18 +219,15 @@ jobs:
         working-directory: /
         run: |
           set -euo pipefail
-          # Workspace setup may create an empty checkout directory.
-          [[ ! -L "${PATH_self}" ]] || { echo 'Unsafe self directory' >&2; exit 1; }
-          if [[ -d "${PATH_self}" ]]; then
-            first_entry=$(find "${PATH_self}" -mindepth 1 -maxdepth 1 -print -quit)
-            [[ -z "${first_entry}" ]] || { echo 'Self directory is not empty' >&2; exit 1; }
-          fi
-          git init "${PATH_self}"
+          [[ -d "${PATH_self}" && ! -L "${PATH_self}" ]] || { echo 'Unsafe self directory' >&2; exit 1; }
+          [[ -z "$(find "${PATH_self}" -mindepth 1 -maxdepth 1 -print -quit)" ]] || { echo 'Self directory is not empty' >&2; exit 1; }
+          git init -q "${PATH_self}"
           git -C "${PATH_self}" remote add origin "${REPO_self}"
           GIT_ALLOW_PROTOCOL=https git -C "${PATH_self}" fetch --depth=1 origin "${REPO_self_sha}"
           git -C "${PATH_self}" checkout --detach FETCH_HEAD
-          [[ "$(git -C "${PATH_self}" rev-parse HEAD)" == "${REPO_self_sha}" ]]
-          git -C "${PATH_self}" rev-parse HEAD
+          sha=$(git -C "${PATH_self}" rev-parse HEAD)
+          [[ "${sha}" == "${REPO_self_sha}" ]] || { echo 'Configuration SHA mismatch' >&2; exit 1; }
+          printf 'Configuration commit: %s\n' "${sha}"
 
       - name: Resolve profile paths
         id: var-setup
@@ -246,26 +242,23 @@ jobs:
           PATH_patches: patches
         run: |
           set -euo pipefail
-          # Validate input before resolving paths or writing environment records.
           for component in "${Target_System}" "${Subtarget}" "${Target_Profile}"; do
             case "${component}" in
               ''|.|..|*/*|*$'\n'*|*$'\r'*) echo 'Unsafe profile path component' >&2; exit 1 ;;
             esac
           done
-          resolved=$(realpath -m -- "${profile_dir}")
-          [[ "${resolved}/" == "${PATH_self}/"* ]] || { echo 'Profile directory escapes self repository' >&2; exit 1; }
-
+          profile_dir=$(realpath -m -- "${profile_dir}")
+          [[ "${profile_dir}" == "${PATH_self}/"* ]] || { echo 'Profile directory escapes self repository' >&2; exit 1; }
           records=()
           for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
             path="${profile_dir}/${!key}"
-            resolved=$(realpath -m -- "${path}")
-            if [[ "${resolved}" != "${PATH_self}/"* ]]; then
-              printf 'Profile path escapes self repository (%s)\n' "${key}" >&2
-              exit 1
+            if [[ -L "${path}" ]]; then
+              resolved=$(realpath -m -- "${path}")
+              [[ "${resolved}" == "${PATH_self}/"* ]] || { echo "Profile path escapes self repository: ${key}" >&2; exit 1; }
             fi
             records+=("${key}=${path}")
           done
-          [[ -f "${profile_dir}/${diy_config}" ]] || { echo 'Target profile configuration not found' >&2; exit 1; }
+          [[ -s "${profile_dir}/${diy_config}" ]] || { echo 'Target profile configuration missing or empty' >&2; exit 1; }
           printf '%s\n' "${records[@]}" >> "${GITHUB_ENV}"
 
       - name: Clone Target Repository
@@ -273,13 +266,11 @@ jobs:
         working-directory: ${{ env.PATH_build }}
         run: |
           set -euo pipefail
-          # Accept trusted full HTTPS URLs only; disallow local/exec transports.
           [[ "${REPO_target}" == https://* ]] || { echo 'Repository must use HTTPS' >&2; exit 1; }
           [[ ! -L "${PATH_target}" ]] || { echo 'Unsafe target directory' >&2; exit 1; }
           GIT_ALLOW_PROTOCOL=https git clone --single-branch \
             --branch="${REPO_target_branch}" -- "${REPO_target}" "${PATH_target}"
-          git -C "${PATH_target}" rev-parse HEAD
-          df -hT "${PATH_target}"
+          printf 'Source commit: %s\n' "$(git -C "${PATH_target}" rev-parse HEAD)"
 
       # ========== Compile: Start ==========
       - name: (feeds.conf.default) Load custom feeds
@@ -397,65 +388,67 @@ jobs:
           # fi
           make -j$(($(nproc) + 1)) V=s
 
-      - name: Copy to output
+      - name: Stage verified OpenWrt artifacts
         id: output
         run: |
-          echo -e "Current working directory: $(pwd)"
+          set -euo pipefail
+          # Query OpenWrt for configured, target-specific output directories.
+          bin_dir=$(make -s val.BIN_DIR)
+          package_dir=$(make -s val.PACKAGE_DIR)
+          bin_dir=$(realpath -e -- "${bin_dir}")
+          package_dir=$(realpath -e -- "${package_dir}")
+          for path in "${bin_dir}" "${package_dir}"; do
+            [[ -d "${path}" && "${path}" == "${PATH_build}/"* ]] || {
+              printf 'Invalid OpenWrt output path: %s\n' "${path}" >&2
+              exit 1
+            }
+          done
+
+          version=''
+          while IFS= read -r -d '' package; do
+            filename="${package##*/}"
+            [[ "${filename}" =~ ^kernel[-_]([0-9]+\.[0-9]+\.[0-9]+)([-_.]|$) ]] || {
+              printf 'Cannot parse kernel version: %s\n' "${filename}" >&2
+              exit 1
+            }
+            next_version="${BASH_REMATCH[1]}"
+            [[ -z "${version}" || "${version}" == "${next_version}" ]] || {
+              printf 'Conflicting kernel versions: %s and %s\n' "${version}" "${next_version}" >&2
+              exit 1
+            }
+            version="${next_version}"
+          done < <(find "${package_dir}" -type f \( -name 'kernel-*.apk' -o -name 'kernel_*.apk' -o -name 'kernel-*.ipk' -o -name 'kernel_*.ipk' \) -print0)
+          [[ -n "${version}" ]] || { echo 'Kernel package not found' >&2; exit 1; }
+
+          artifacts=()
+          firmware_count=0
+          while IFS= read -r -d '' artifact; do
+            [[ -s "${artifact}" ]] || { printf 'Empty artifact: %s\n' "${artifact}" >&2; exit 1; }
+            case "${artifact##*/}" in
+              *.bin|*.img|*.img.gz|*.itb|*.trx|*.ubi|*.ubifs|*.vmdk|*.qcow2|*.iso|*rootfs.tar.*|*.squashfs|*.ext4|*.elf|*.tar.gz|*.tar.xz|*.tar.zst)
+                ((firmware_count += 1)) ;;
+            esac
+            artifacts+=("${artifact}")
+          done < <(find "${bin_dir}" -mindepth 1 -maxdepth 1 -type f -print0)
+          (( firmware_count > 0 )) || { echo 'No firmware images in BIN_DIR' >&2; exit 1; }
 
           [[ ! -L "${PATH_output}" ]] || { echo 'Unsafe output directory' >&2; exit 1; }
           mkdir -p -- "${PATH_output}"
-
-          echo "复制 ${PATH_target}/bin/targets/*/*/* 到: ${PATH_output}/"
-          cp -rf -- "${PATH_target}"/bin/targets/*/*/* "${PATH_output}/"
-          ls -lhR -- "${PATH_output}/"
-
-          echo "复制 ${PATH_target}/.config 到: ${PATH_output}/config"
+          [[ -z "$(find "${PATH_output}" -mindepth 1 -maxdepth 1 -print -quit)" ]] || {
+            echo 'Output directory is not empty' >&2
+            exit 1
+          }
+          cp -f -- "${artifacts[@]}" "${PATH_output}/"
           cp -f -- "${PATH_target}/.config" "${PATH_output}/config"
-
-          echo -e "timestamp=$(date +"%y%mw%V")" >> "${GITHUB_OUTPUT}"
-
-      - name: Version of the kernel
-        id: version-kernel
-        working-directory: ${{ env.PATH_output }}
-        run: |
-          echo -e "Current working directory: $(pwd)"
-
-          # 查找 packages 目录中的 kernel 文件
-          Package_Kernel=$(find packages -name 'kernel[-_]*.*pk' | head -n 1)
-          echo "Kernel file: ${Package_Kernel}"
-
-          if [ -n "${Package_Kernel}" ]; then
-            # 提取文件名
-            Filename_Kernel=$(basename "${Package_Kernel}")
-            echo "Filename: ${Filename_Kernel}"
-            
-            # 使用正则表达式匹配 'kernel-' 或 'kernel_' 后面的 x.y.z 版本号
-            # if [[ "${Filename_Kernel}" =~ kernel[-_](\d+\.\d+\.\d+) ]]; then
-            if [[ "${Filename_Kernel}" =~ kernel[-_]([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-              Version_Kernel="${BASH_REMATCH[1]}"
-
-              echo "Kernel version: ${Version_Kernel}"
-              echo "version=${Version_Kernel}" | tee -a "${GITHUB_OUTPUT}"
-            else
-              echo "Kernel version pattern not found in filename."
-            fi
-          else
-            echo "No kernel file found."
-          fi
-
-      - name: (Clean) output
-        id: clean-output
-        working-directory: ${{ env.PATH_output }}
-        run: |
-          echo -e "Current working directory: $(pwd)"
-
-          # handle Dir packages
-          ls -lhR ./packages
-          rm -rf ./packages
+          {
+            printf 'timestamp=%s\n' "$(date +'%y%mw%V')"
+            printf 'version=%s\n' "${version}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: "[release.md] Record release.md"
         id: record
         run: |
+          set -euo pipefail
           printf "Current working directory: %s\n" "$(pwd)"
 
           MD_release_dir=$(dirname -- "${MD_release}")
@@ -466,7 +459,6 @@ jobs:
           fi
           : > "${MD_release}"
 
-          set +e
           record_to_markdown() {
             local title="$1"
             local content="$2"
@@ -502,7 +494,7 @@ jobs:
             if [[ -f "${file_path}" ]]; then
               IFS='|' read -r section_title file_type <<< "${file_records[${file_path}]}"
               # 合并grep命令，一次性移除注释和空行
-              code_content=$(grep -E '^[^#]' -- "${file_path}" | grep -Ev '^\s*$' | sed 's/\s\+$//g')
+              code_content=$(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//' "${file_path}")
               record_to_markdown "${section_title}" "${code_content}" "${file_type}"
             fi
           done
@@ -513,14 +505,12 @@ jobs:
           # # record_to_markdown "Profiles" "${profiles_json_content}" "json"
 
           cat -- "${MD_release}"
-          set -e
-
       - name: Upload OpenWrt to Release
         id: release
         uses: ncipollo/release-action@main
         env:
           timestamp: ${{ steps.output.outputs.timestamp }}
-          version_kernel: ${{ steps.version-kernel.outputs.version }}
+          version_kernel: ${{ steps.output.outputs.version }}
         with:
           name: "${{ env.REPO_target_branch }}+${{ env.version_kernel }}+${{ env.Target_System }}+${{ env.Subtarget }}+${{ env.Target_Profile }}"
           tag: "${{ env.REPO_target_branch }}+${{ env.version_kernel }}+${{ env.Target_Profile }}"
