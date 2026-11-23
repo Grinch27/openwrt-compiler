@@ -526,13 +526,25 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 
 执行任务前必须先检查 `README.md`、`.github/workflows/` 下与任务有关的工作流、共享 Actions 接口，以及被调用的本仓库构建配置。
 
-统一编译入口为 `.github/workflows/call-build_allinone.yml`。自动 Tier 使用 Container。Custom 手动构建默认 `Use_Container=true`，设为 `false` 可选择 Non-container。
+正式编译采用两个职责分离的工作流：
+
+- `.github/workflows/call-build_schedule.yml`：唯一 Cron 调度入口，负责计划时刻、静态 YAML `strategy.matrix.include` 编译目标集合，以及每周上游稳定分支查询。
+- `.github/workflows/call-build_allinone.yml`：唯一单目标编译执行器，支持 `workflow_call`、`workflow_dispatch` 和原有路径过滤的 `main` push；负责统一参数校验、动态 Runner 解析、编译环境初始化、编译、验证和 Release 发布。一次调用仅构建一个目标。
 
 历史编译入口存放在 `.github/archive/workflows/`。
 
-正式入口只保留 `schedule`、`push`、`workflow_dispatch`。`cron_everyday` 对应 Tier 1，`cron_sunday` 对应 Tier 2，匹配路径的 main push 对应 Tier 3；`workflow_dispatch` 只允许 Custom 参数化构建，不提供 Tier 选择器。不得为正式入口重新引入 `workflow_call` 或 `repository_dispatch`，除非获得新的明确授权。
+### 调度与编译边界（已冻结）
 
-Tier 与 Custom 采用统一 Release Name（branch+kernel+Target_System+Subtarget+Target_Profile）和 Git Tag（branch+kernel+Target_Profile）。同 Tag 更新既有 Release，Custom 可能覆盖同名正式构建附件，须使用可信源码及明确的目标配置。
+- 每日计划为 `0 21 * * *`（UTC）：官方 OpenWrt `main` / MediaTek_Ralink_ARM / MT798x。
+- 每周计划为 `0 0 * * 1`（UTC）：官方最新版本系列分支 / MediaTek_Ralink_ARM / MT798x，以及 `main` / x86 / x86_64、`main` / MediaTek_Ralink_MIPS / MT7621。最新版本系列分支由调度工作流的 `resolve-stable-branch` Job 查询匹配 `openwrt-<major>.<minor>` 的远端分支并按版本排序取得；查询失败或无匹配时，整个每周 Matrix 不执行。
+- 每日和每周均使用原生静态 YAML Matrix；通过同仓库 `jobs.<job_id>.uses` 和 `with` 传递具体目标参数。Cron 与对应 Job 条件必须同步；未匹配的 Cron 不得触发默认构建。
+- 主工作流不得重新引入 Cron、Tier / Custom 等级分类、`@stable` 等分支占位标识、内部编译 Matrix、`jq` / `fromJSON()` 动态目标矩阵或定时目标集合。主工作流只接受真实 Git 分支名称并校验其格式。
+- `resolve-runner-image` 属于编译环境初始化，必须保留在主工作流中，不迁入调度工作流。调度层的 `resolve-stable-branch` 是非编译引导 Job，按已批准的项目架构直接使用 `ubuntu-latest`，不为该查询额外解析 Runner；这是 Part I 第 4 节 Runner 规范在本项目的明确局部例外，不推广到编译 Job。
+- 自动调度及直接匹配路径的 main push 默认使用 Container；后者保持官方 `main` / MediaTek_Ralink_ARM / MT798x / nokia_ea0326gmp。参数化手动调用默认 `Use_Container=true`，设为 `false` 可选择 Non-container。可复用调用支持同一参数接口，保留显式 `false`，不得使用会吞掉 false 的默认值表达式。
+- 保留 `OpenWrt_Repository`、`OpenWrt_Branch`、`Target_System`、`Subtarget`、`Target_Profile`、`Use_Container`、`custom_env` 接口及合法性校验；空 Profile 按 Subtarget 解析，所有目标均要求实际配置文件存在。
+- 不得未经批准重新合并调度与编译职责、改变 Cron、目标集合、默认参数、Push 路径条件、发布策略或新增 `repository_dispatch`。两个工作流的调用契约变更须在同一提交中完成，并验证调用关系及发布权限。
+
+所有触发方式采用统一 Release Name（branch+kernel+Target_System+Subtarget+Target_Profile）和 Git Tag（branch+kernel+Target_Profile）。同 Tag 更新既有 Release，手动或其他可复用调用可能覆盖同名构建附件，须使用可信源码及明确的目标配置。变更主工作流可能触发 Nokia 自动编译及 Release 更新；提交前必须明确该影响及授权。当前双工作流架构已提交，但定时触发、双环境完整构建及 Release 发布的实际验收须以对应运行证据为准。
 
 其他现存工作流是否属于正式构建、开发测试、可复用调用或辅助任务，必须逐文件审查；不能根据文件名推断用途或擅自删除。
 
