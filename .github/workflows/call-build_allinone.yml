@@ -141,7 +141,7 @@ jobs:
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     container:
       # An empty image selects the host runner.
-      image: ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'ubuntu:devel' || '' }}
+      image: ${{ (inputs.Use_Container || (github.event_name == 'push' && endsWith(github.workflow_ref, '/.github/workflows/call-build_allinone.yml@refs/heads/main'))) && 'ubuntu:devel' || '' }}
       options: >-
         --privileged
         --user=0:0
