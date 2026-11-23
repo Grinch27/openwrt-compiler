@@ -15,6 +15,7 @@ name: Call Build (All in One)
 # Unknown: historical forks and indirect DIY dependencies require real build acceptance.
 # Verify DIY exit status and copying optional overlays with dotfiles or empty directories.
 # Variable setup: preserve exported names and paths; verify both execution modes and shared env-indocker.
+# Verify build directory creation after mounting, profile path containment, and spaces in paths.
 # Verify direct push, reusable caller, explicit false, invalid inputs and hosted release behavior.
 
 on:
@@ -203,7 +204,6 @@ jobs:
       PATH_backup: "/builder/backup"
       PATH_self: "/builder/self"
       MD_release: "/builder/release.md"
-      # PATH_patches: "/builder/target/patches"
     steps:
       # ========== General Environment Setup: Start ==========
       - name: Prepare build environment
@@ -216,45 +216,53 @@ jobs:
         working-directory: /
         run: |
           set -euo pipefail
-          # The disk initializer may create an empty PATH_self; never erase it.
-          [[ ! -L "$PATH_self" ]] || { echo 'Unsafe self directory' >&2; exit 1; }
-          if [[ -d "$PATH_self" && -n "$(find "$PATH_self" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
-            echo 'Self directory is not empty' >&2
-            exit 1
+          # Workspace setup may create an empty checkout directory.
+          [[ ! -L "${PATH_self}" ]] || { echo 'Unsafe self directory' >&2; exit 1; }
+          if [[ -d "${PATH_self}" ]]; then
+            first_entry=$(find "${PATH_self}" -mindepth 1 -maxdepth 1 -print -quit)
+            [[ -z "${first_entry}" ]] || { echo 'Self directory is not empty' >&2; exit 1; }
           fi
-          git init "$PATH_self"
-          git -C "$PATH_self" remote add origin "$REPO_self"
-          GIT_ALLOW_PROTOCOL=https git -C "$PATH_self" fetch --depth=1 origin "$REPO_self_sha"
-          git -C "$PATH_self" checkout --detach FETCH_HEAD
-          [[ "$(git -C "$PATH_self" rev-parse HEAD)" == "$REPO_self_sha" ]]
-          git -C "$PATH_self" rev-parse HEAD
+          git init "${PATH_self}"
+          git -C "${PATH_self}" remote add origin "${REPO_self}"
+          GIT_ALLOW_PROTOCOL=https git -C "${PATH_self}" fetch --depth=1 origin "${REPO_self_sha}"
+          git -C "${PATH_self}" checkout --detach FETCH_HEAD
+          [[ "$(git -C "${PATH_self}" rev-parse HEAD)" == "${REPO_self_sha}" ]]
+          git -C "${PATH_self}" rev-parse HEAD
 
-      - name: (Var) environment variable setup
+      - name: Resolve profile paths
         id: var-setup
         working-directory: /
+        env:
+          profile_dir: ${{ env.PATH_self }}/${{ env.Target_System }}/${{ env.Subtarget }}/${{ env.Target_Profile }}
+          diy_config: ${{ env.Target_Profile }}.config
+          diy_feeds: feeds.conf.default
+          diy_p1_sh: diy-part1.sh
+          diy_p2_sh: diy-part2.sh
+          diy_files: files
+          PATH_patches: patches
         run: |
           set -euo pipefail
-          # Safety only: prevent path traversal and environment-file injection.
-          for component in "$Target_System" "$Subtarget" "$Target_Profile"; do
-            case "$component" in
+          # Validate input before resolving paths or writing environment records.
+          for component in "${Target_System}" "${Subtarget}" "${Target_Profile}"; do
+            case "${component}" in
               ''|.|..|*/*|*$'\n'*|*$'\r'*) echo 'Unsafe profile path component' >&2; exit 1 ;;
             esac
           done
-          profile_dir="${PATH_self}/${Target_System}/${Subtarget}/${Target_Profile}"
-          diy_config="${profile_dir}/${Target_Profile}.config"
-          diy_feeds="${profile_dir}/feeds.conf.default"
-          diy_p1_sh="${profile_dir}/diy-part1.sh"
-          diy_p2_sh="${profile_dir}/diy-part2.sh"
-          diy_files="${profile_dir}/files"
-          PATH_patches="${profile_dir}/patches"
+          resolved=$(realpath -m -- "${profile_dir}")
+          [[ "${resolved}/" == "${PATH_self}/"* ]] || { echo 'Profile directory escapes self repository' >&2; exit 1; }
+
+          records=()
           for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
-            resolved=$(realpath -m -- "${!key}")
-            [[ "$resolved" == "$PATH_self/"* ]] || { echo 'Profile path escapes self repository' >&2; exit 1; }
+            path="${profile_dir}/${!key}"
+            resolved=$(realpath -m -- "${path}")
+            if [[ "${resolved}" != "${PATH_self}/"* ]]; then
+              printf 'Profile path escapes self repository (%s)\n' "${key}" >&2
+              exit 1
+            fi
+            records+=("${key}=${path}")
           done
-          [[ -f "$diy_config" ]] || { echo 'Target profile configuration not found' >&2; exit 1; }
-          for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
-            printf '%s=%s\n' "$key" "${!key}"
-          done >> "$GITHUB_ENV"
+          [[ -f "${profile_dir}/${diy_config}" ]] || { echo 'Target profile configuration not found' >&2; exit 1; }
+          printf '%s\n' "${records[@]}" >> "${GITHUB_ENV}"
 
       - name: Clone Target Repository
         id: clone-target
@@ -262,12 +270,12 @@ jobs:
         run: |
           set -euo pipefail
           # Accept trusted full HTTPS URLs only; disallow local/exec transports.
-          [[ "$REPO_target" == https://* ]] || { echo 'Repository must use HTTPS' >&2; exit 1; }
-          [[ ! -L "$PATH_target" ]] || { echo 'Unsafe target directory' >&2; exit 1; }
+          [[ "${REPO_target}" == https://* ]] || { echo 'Repository must use HTTPS' >&2; exit 1; }
+          [[ ! -L "${PATH_target}" ]] || { echo 'Unsafe target directory' >&2; exit 1; }
           GIT_ALLOW_PROTOCOL=https git clone --single-branch \
-            --branch="$REPO_target_branch" -- "$REPO_target" "$PATH_target"
-          git -C "$PATH_target" rev-parse HEAD
-          df -hT "$PATH_target"
+            --branch="${REPO_target_branch}" -- "${REPO_target}" "${PATH_target}"
+          git -C "${PATH_target}" rev-parse HEAD
+          df -hT "${PATH_target}"
 
       # ========== Compile: Start ==========
       - name: (feeds.conf.default) Load custom feeds
@@ -276,7 +284,7 @@ jobs:
           echo -e "Current working directory: $(pwd)"
           if [[ -e "${diy_feeds}" && ! "${diy_feeds}" -ef "${PATH_target}/feeds.conf.default" ]]; then
             echo -e "diy_feeds: ${diy_feeds}"
-            cp -f -- "$diy_feeds" "$PATH_target/feeds.conf.default"
+            cp -f -- "${diy_feeds}" "${PATH_target}/feeds.conf.default"
           fi
 
       - name: (DIY_P1.sh) after load feeds, before update feeds
@@ -284,15 +292,15 @@ jobs:
         env:
           file_script: ${{ env.diy_p1_sh }}
         run: &run-diy |
-          if [[ ! -e "$file_script" && ! -L "$file_script" ]]; then
+          if [[ ! -e "${file_script}" && ! -L "${file_script}" ]]; then
             exit 0
           fi
-          if [[ ! -f "$file_script" || ! -r "$file_script" ]]; then
-            printf '::error::DIY script is not a readable file: %s\n' "$file_script"
+          if [[ ! -f "${file_script}" || ! -r "${file_script}" ]]; then
+            printf '::error::DIY script is not a readable file: %s\n' "${file_script}"
             exit 1
           fi
-          printf 'Running DIY script: %s\n' "$file_script"
-          bash -e -o pipefail -- "$file_script"
+          printf 'Running DIY script: %s\n' "${file_script}"
+          bash -e -o pipefail -- "${file_script}"
 
       - name: Update feeds
         id: feeds-update
@@ -314,10 +322,10 @@ jobs:
         working-directory: ${{ env.PATH_target }}
         run: |
           mkdir -p -- ./files/etc/config
-          if [[ -d "$diy_files" ]]; then
-            cp -a -- "$diy_files/." ./files/
-          elif [[ -e "$diy_files" || -L "$diy_files" ]]; then
-            printf '::error::Custom files path is not a directory: %s\n' "$diy_files"
+          if [[ -d "${diy_files}" ]]; then
+            cp -a -- "${diy_files}/." ./files/
+          elif [[ -e "${diy_files}" || -L "${diy_files}" ]]; then
+            printf '::error::Custom files path is not a directory: %s\n' "${diy_files}"
             exit 1
           fi
 
@@ -326,8 +334,8 @@ jobs:
         working-directory: ${{ env.PATH_target }}
         run: |
           set -euo pipefail
-          if [[ ! "$diy_config" -ef "$PATH_target/.config" ]]; then
-            cp -f -- "$diy_config" "$PATH_target/.config"
+          if [[ ! "${diy_config}" -ef "${PATH_target}/.config" ]]; then
+            cp -f -- "${diy_config}" "${PATH_target}/.config"
           fi
 
       - name: (patches) Apply patches
@@ -402,19 +410,18 @@ jobs:
       - name: Copy to output
         id: output
         working-directory: /
-        env:
-          PATH_TARGET: ${{ env.PATH_target }}/bin/targets/*/*/*
         run: |
           echo -e "Current working directory: $(pwd)"
 
-          [[ -e "${PATH_output}" ]] || mkdir -p ${PATH_output}
+          [[ ! -L "${PATH_output}" ]] || { echo 'Unsafe output directory' >&2; exit 1; }
+          mkdir -p -- "${PATH_output}"
 
-          echo "复制 ${PATH_TARGET} 到: ${PATH_output}/"
-          cp -rf ${PATH_TARGET} ${PATH_output}/
-          ls -lhR ${PATH_output}/
+          echo "复制 ${PATH_target}/bin/targets/*/*/* 到: ${PATH_output}/"
+          cp -rf -- "${PATH_target}"/bin/targets/*/*/* "${PATH_output}/"
+          ls -lhR -- "${PATH_output}/"
 
           echo "复制 ${PATH_target}/.config 到: ${PATH_output}/config"
-          cp -f ${PATH_target}/.config ${PATH_output}/config
+          cp -f -- "${PATH_target}/.config" "${PATH_output}/config"
 
           echo -e "timestamp=$(date +"%y%mw%V")" >> "${GITHUB_OUTPUT}"
 
@@ -428,7 +435,7 @@ jobs:
           Package_Kernel=$(find packages -name 'kernel[-_]*.*pk' | head -n 1)
           echo "Kernel file: ${Package_Kernel}"
 
-          if [ -n "$Package_Kernel" ]; then
+          if [ -n "${Package_Kernel}" ]; then
             # 提取文件名
             Filename_Kernel=$(basename "${Package_Kernel}")
             echo "Filename: ${Filename_Kernel}"
@@ -463,9 +470,13 @@ jobs:
         run: |
           printf "Current working directory: %s\n" "$(pwd)"
 
-          MD_release_dir=$(dirname ${MD_release})
-          mkdir -p ${MD_release_dir}
-          : > ${MD_release}
+          MD_release_dir=$(dirname -- "${MD_release}")
+          mkdir -p -- "${MD_release_dir}"
+          if [[ -L "${MD_release}" || ( -e "${MD_release}" && ! -f "${MD_release}" ) ]]; then
+            echo 'Release notes path is not a regular file' >&2
+            exit 1
+          fi
+          : > "${MD_release}"
 
           set +e
           record_to_markdown() {
@@ -476,9 +487,9 @@ jobs:
 
             if [[ -n "${code_block}" ]]; then
               format="\n### %s\n\n<details>\n<summary>%s</summary>\n\n\`\`\`%s\n%s\n\`\`\`\n\n</details>\n"
-              printf "${format}" "${title}" "${title}" "${code_block}" "${content}" | tee -a ${MD_release}
+              printf "${format}" "${title}" "${title}" "${code_block}" "${content}" | tee -a -- "${MD_release}"
             else
-              printf "${format}" "${title}" "${content}" | tee -a ${MD_release}
+              printf "${format}" "${title}" "${content}" | tee -a -- "${MD_release}"
             fi
           }
 
@@ -497,23 +508,23 @@ jobs:
             ["${diy_p1_sh}"]="$(basename "${diy_p1_sh}")|bash"
             ["${diy_p2_sh}"]="$(basename "${diy_p2_sh}")|bash"
             ["${diy_config}"]="pre-config|makefile"
-            ["${{ env.PATH_target }}/.config"]=".config|makefile"
+            ["${PATH_target}/.config"]=".config|makefile"
           )
           for file_path in "${!file_records[@]}"; do
-            if [[ -f $file_path ]]; then
-              IFS='|' read -r section_title file_type <<< "${file_records[$file_path]}"
+            if [[ -f "${file_path}" ]]; then
+              IFS='|' read -r section_title file_type <<< "${file_records[${file_path}]}"
               # 合并grep命令，一次性移除注释和空行
-              code_content=$(grep -E '^[^#]' "$file_path" | grep -Ev '^\s*$' | sed 's/\s\+$//g')
-              record_to_markdown "$section_title" "$code_content" "$file_type"
+              code_content=$(grep -E '^[^#]' -- "${file_path}" | grep -Ev '^\s*$' | sed 's/\s\+$//g')
+              record_to_markdown "${section_title}" "${code_content}" "${file_type}"
             fi
           done
 
           # # 读取profiles.json
-          # profiles_json_path="${{ env.PATH_output }}/profiles.json"
-          # profiles_json_content=$(jq '.' "$profiles_json_path")
-          # # record_to_markdown "Profiles" "$profiles_json_content" "json"
+          # profiles_json_path="${PATH_output}/profiles.json"
+          # profiles_json_content=$(jq '.' "${profiles_json_path}")
+          # # record_to_markdown "Profiles" "${profiles_json_content}" "json"
 
-          cat ${MD_release}
+          cat -- "${MD_release}"
           set -e
 
       - name: Upload OpenWrt to Release

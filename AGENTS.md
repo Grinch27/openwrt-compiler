@@ -543,6 +543,7 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 - 自动调度及直接匹配路径的 main push 默认使用 Container；后者保持官方 `main` / MediaTek_Ralink_ARM / MT798x / nokia_ea0326gmp。参数化手动调用默认 `Use_Container=true`，设为 `false` 可选择 Non-container。可复用调用支持同一参数接口，保留显式 `false`，不得使用会吞掉 false 的默认值表达式。
 - 保留 `OpenWrt_Repository`、`OpenWrt_Branch`、`Target_System`、`Subtarget`、`Target_Profile`、`Use_Container`、`custom_env` 接口；通过 `action.env` 直接声明 inputs 与默认值，不再经 `runner-image` 转发七个业务 Outputs。`action.name` 直接使用 `inputs.Use_Container` 显示模式，不为直接 Push 补默认值（允许直接 Push 名称显示 Non-container、实际仍为 Container）；`container.image` 原有执行环境判断保持不变。删除 `Verify build execution mode` Step 及其专用 `USE_CONTAINER`、`JOB_CONTAINER_ID` 环境变量；后续 Step 使用 env。不得恢复独立 `resolve-target` 业务参数校验或规范化层。源码仓库、Target System 和 Subtarget 优先使用输入，空值回退到直接 Push 的 Nokia 参数；Profile 依次取 `inputs.Target_Profile`、`inputs.Subtarget` 和 `nokia_ea0326gmp`。必须保留路径范围、环境文件注入、HTTPS Transport 和 Shell 引用等安全防护，以及共享 `input-custom` 的工具链覆盖校验。
 - 配置仓库按触发运行的 `github.sha` 固定版本，在磁盘初始化后克隆并检查 Profile 配置存在性，再克隆上游完整历史；记录配置和源码 Commit。
+- 主工作流 Bash 的普通具名变量使用 `${变量名}`，路径展开加双引号。共享环境 Action 在磁盘设置后创建工作目录。Profile 目录和相对文件名声明在步骤级 `env`，检出配置仓库后统一验证并导出绝对路径。可选的 Profile 文件和目录由检出内容提供。
 - DIY P1 和 P2 共用 Bash 执行逻辑。选配脚本缺失时跳过，执行失败时停止。Custom Files 复制整个目录内容，包含点文件。
 - 主工作流仅在所有 DIY 修改后统一执行一次 `make defconfig`，失败须停止；DIY P2 只负责修改，不再执行 `make oldconfig` 或 `make defconfig`。保留 `make dirclean`。
 - 不得未经批准重新合并调度与编译职责、改变 Cron、目标集合、默认参数、Push 路径条件、发布策略或新增 `repository_dispatch`。两个工作流的调用契约变更须在同一提交中完成，并验证调用关系及发布权限。
