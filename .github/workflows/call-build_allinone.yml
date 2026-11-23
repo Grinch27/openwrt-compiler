@@ -134,7 +134,7 @@ jobs:
   action:
     name: >-
       ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
-      ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'Container' || 'Non-container' }}
+      ${{ inputs.Use_Container && 'Container' || 'Non-container' }}
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     container:
@@ -162,7 +162,6 @@ jobs:
         - /lib/modules:/lib/modules:ro
         - /var/run/docker.sock:/var/run/docker.sock
     env:
-      USE_CONTAINER: ${{ ((github.event_name == 'push' && github.workflow_ref == format('{0}/.github/workflows/call-build_allinone.yml@refs/heads/main', github.repository)) || inputs.Use_Container) && 'true' || 'false' }}
       custom_env: ${{ inputs.custom_env || '' }}
       # ========= Toolchain Environment Variables ==========
       # ----- gcc -----
@@ -205,19 +204,6 @@ jobs:
       MD_release: "/builder/release.md"
       # PATH_patches: "/builder/target/patches"
     steps:
-      # ========== Pre: Settings ==========
-      - name: Verify build execution mode
-        env:
-          JOB_CONTAINER_ID: ${{ job.container.id }}
-        run: |
-          if [[ "$USE_CONTAINER" == true && -n "$JOB_CONTAINER_ID" ]] ||
-             [[ "$USE_CONTAINER" == false && -z "$JOB_CONTAINER_ID" ]]; then
-            printf 'Build job matches use_container=%s\n' "$USE_CONTAINER"
-          else
-            printf '::error::Build job placement differs from use_container=%s\n' "$USE_CONTAINER"
-            exit 1
-          fi
-
       # ========== General Environment Setup: Start ==========
       - name: Prepare build environment
         id: docker-workspace
