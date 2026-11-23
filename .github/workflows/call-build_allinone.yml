@@ -136,7 +136,7 @@ jobs:
   action:
     name: >-
       ${{ needs.runner-image.outputs.RUNNER_IMAGE }} -
-      ${{ inputs.Use_Container && 'Container' || 'Non-container' }}
+      ${{ (inputs.Use_Container || !inputs.Target_System) && 'Container' || 'Non-container' }}
     needs: runner-image
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     container:
