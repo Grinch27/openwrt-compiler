@@ -192,7 +192,6 @@ jobs:
       REPO_self: "https://github.com/${{ github.repository }}"
       REPO_self_branch: ${{ github.ref_name }}
       REPO_self_sha: ${{ github.sha }}
-      REPO_self_owner: ${{ github.repository_owner }}
       # ----- Build Target -----
       Target_System: ${{ inputs.Target_System || 'MediaTek_Ralink_ARM' }}
       Subtarget: ${{ inputs.Subtarget || 'MT798x' }}
@@ -232,14 +231,14 @@ jobs:
           profile_dir: ${{ env.PATH_self }}/${{ env.Target_System }}/${{ env.Subtarget }}/${{ env.Target_Profile }}
           diy_config: ${{ env.Target_Profile }}.config
           diy_feeds: feeds.conf.default
-          diy_p1_sh: diy-part1.sh
-          diy_p2_sh: diy-part2.sh
+          pre_feeds_update_script: pre-feeds-update.sh
+          pre_defconfig_script: pre-defconfig.sh
           diy_files: files
           PATH_patches: patches
         run: |
           set -euo pipefail
           for component in "${Target_System}" "${Subtarget}" "${Target_Profile}"; do case "${component}" in ''|.|..|*/*|*$'\n'*|*$'\r'*) echo 'Unsafe profile path component' >&2; exit 1 ;; esac; done
-          for key in diy_config diy_feeds diy_p1_sh diy_p2_sh diy_files PATH_patches; do
+          for key in diy_config diy_feeds pre_feeds_update_script pre_defconfig_script diy_files PATH_patches; do
             printf '%s=%s/%s\n' "${key}" "${profile_dir}" "${!key}"
           done >> "${GITHUB_ENV}"
 
@@ -263,9 +262,9 @@ jobs:
             cp -f -- "${diy_feeds}" "${PATH_target}/feeds.conf.default"
           fi
 
-      - name: (DIY_P1.sh) after load feeds, before update feeds
+      - name: Run pre-feeds-update.sh
         env:
-          file_script: ${{ env.diy_p1_sh }}
+          file_script: ${{ env.pre_feeds_update_script }}
         run: &run-diy |
           if [[ ! -e "${file_script}" && ! -L "${file_script}" ]]; then
             exit 0
@@ -320,9 +319,9 @@ jobs:
             find "${PATH_patches}" -type f -name '*.patch' -print0 | sort -z | xargs -0 -r -t -n 1 sh -c 'patch -d ./ -B --merge -p1 --forward < "$1"' _
           fi
 
-      - name: (DIY_P2.sh) after install feeds, before download package
+      - name: Run pre-defconfig.sh
         env:
-          file_script: ${{ env.diy_p2_sh }}
+          file_script: ${{ env.pre_defconfig_script }}
         run: *run-diy
 
       - name: Generate OpenWrt configuration
@@ -334,41 +333,20 @@ jobs:
           test -s .config
           cat .config
 
-      - name: Clean & Rebuild host tools
+      - name: Clean OpenWrt build directories
         id: make-clean
-        # if: ${{ 'true' == 'false' }} # disable
-        run: |
-          make dirclean
-          # make tools/install -j$(($(nproc) + 1))
-          make tools/install -j$(($(nproc) + 1)) V=s
+        run: make dirclean
+
+      - name: Build OpenWrt host tools
+        run: make tools/install -j$(($(nproc) + 1)) V=s
 
       - name: Download package
         id: package
-        run: |
-          echo -e "Current working directory: $(pwd)"
-          echo -e "make download: $(($(nproc) + 1)) thread"
-          make download -j$(($(nproc) + 1))
-          # find dl -size -1024c -exec ls -l {} \;
-          # find dl -size -1024c -exec rm -f {} \;
-
-      - name: Test Before Compile
-        id: make-test
-        if: ${{ 'true' == 'false' }} # disable
-        run: |
-          echo -e "Current working directory: $(pwd)"
-          # grep -R "kmod-sound-mt7620" target/linux/ramips/image -n
+        run: make download -j$(($(nproc) + 1))
 
       - name: Compile the OpenWrt
         id: compile
-        run: |
-          echo -e "Current working directory: $(pwd)"
-          echo -e "$(($(nproc) + 1)) thread compile"
-          # if [ "${{ env.continue_on_error }}" == "true" ]; then
-          #   make -j$(($(nproc) + 1)) V=s -k
-          # else
-          #   make -j$(($(nproc) + 1)) V=s
-          # fi
-          make -j$(($(nproc) + 1)) V=s
+        run: make -j$(($(nproc) + 1)) V=s
 
       - name: Stage verified OpenWrt artifacts
         id: output
@@ -455,9 +433,6 @@ jobs:
             fi
           }
 
-          # 记录Clone源码的分支和构建者、编译完成时间
-          # record_to_markdown "Build ${Target_Profile} - by ${REPO_self_owner}" ""
-          # record_to_markdown "OpenWrt branch" "- [${openwrt_branch};${REPO_target_branch}](${REPO_target}/tree/${REPO_target_branch})"
           record_to_markdown "Target" "- [x] ${Target_System} - ${Subtarget} - ${Target_Profile}"
           record_to_markdown "Timestamp" "- [x] $(date +"%Y-%m-%d %H:%M:%S %z")"
           record_to_markdown "Repository" "- [x] ${REPO_target}"
@@ -467,8 +442,8 @@ jobs:
 
           declare -A file_records=(
             ["${diy_feeds}"]="feeds setting|bash"
-            ["${diy_p1_sh}"]="$(basename "${diy_p1_sh}")|bash"
-            ["${diy_p2_sh}"]="$(basename "${diy_p2_sh}")|bash"
+            ["${pre_feeds_update_script}"]="${pre_feeds_update_script##*/}|bash"
+            ["${pre_defconfig_script}"]="${pre_defconfig_script##*/}|bash"
             ["${diy_config}"]="pre-config|makefile"
             ["${PATH_target}/.config"]=".config|makefile"
           )
@@ -480,11 +455,6 @@ jobs:
               record_to_markdown "${section_title}" "${code_content}" "${file_type}"
             fi
           done
-
-          # # 读取profiles.json
-          # profiles_json_path="${PATH_output}/profiles.json"
-          # profiles_json_content=$(jq '.' "${profiles_json_path}")
-          # # record_to_markdown "Profiles" "${profiles_json_content}" "json"
 
           cat -- "${MD_release}"
       - name: Upload OpenWrt to Release

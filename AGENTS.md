@@ -544,8 +544,8 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 - 保留 `OpenWrt_Repository`、`OpenWrt_Branch`、`Target_System`、`Subtarget`、`Target_Profile`、`Use_Container`、`custom_env` 接口；通过 `action.env` 直接声明 inputs 与默认值，不再经 `runner-image` 转发七个业务 Outputs。`action.name` 与 `container.image` 使用相同的 `(inputs.Use_Container || !inputs.Target_System)` 条件显示模式：直接 Push 的输入为空时显示 Container，显式 `Use_Container=false` 且已指定 `Target_System` 时显示 Non-container；`container.image` 原有执行环境判断保持不变。删除 `Verify build execution mode` Step 及其专用 `USE_CONTAINER`、`JOB_CONTAINER_ID` 环境变量；后续 Step 使用 env。不得恢复独立 `resolve-target` 业务参数校验或规范化层。源码仓库、Target System 和 Subtarget 优先使用输入，空值回退到直接 Push 的 Nokia 参数；Profile 依次取 `inputs.Target_Profile`、`inputs.Subtarget` 和 `nokia_ea0326gmp`。必须保留路径范围、环境文件注入、HTTPS Transport 和 Shell 引用等安全防护，以及共享 `input-custom` 的工具链覆盖校验。
 - 配置仓库按触发运行的 `github.sha` 固定版本，在磁盘初始化后克隆，再克隆上游完整历史；Profile 配置是否存在及非空由后续配置加载和 `make defconfig` 阶段处理；记录配置和源码 Commit。
 - 主工作流 Bash 的普通具名变量使用 `${变量名}`，路径展开加双引号。共享环境 Action 在磁盘设置后创建工作目录。Profile 目录和相对文件名声明在步骤级 `env`，检出配置仓库后统一验证并导出绝对路径。可选的 Profile 文件和目录由检出内容提供。
-- DIY P1 和 P2 共用 Bash 执行逻辑。选配脚本缺失时跳过，执行失败时停止。Custom Files 复制整个目录内容，包含点文件。
-- 主工作流仅在所有 DIY 修改后统一执行一次 `make defconfig`，失败须停止；DIY P2 只负责修改，不再执行 `make oldconfig` 或 `make defconfig`。保留 `make dirclean`。
+- `pre-feeds-update.sh` 在加载 `feeds.conf.default` 后、更新 Feeds 前执行。`pre-defconfig.sh` 在安装 Feeds、加载 files 和 .config、应用 patches 后执行。两个 Profile 脚本共用 Bash 执行逻辑。脚本缺失时跳过，不可读或执行失败时停止。Custom Files 复制整个目录内容，包含点文件。
+- 主工作流在 `pre-defconfig.sh` 完成后统一执行一次 `make defconfig`，失败须停止。该脚本只修改配置，禁止调用 `make oldconfig` 或 `make defconfig`。`make dirclean` 在主机工具编译前单独执行。
 - 发布前通过 `make -s val.BIN_DIR` 与 `make -s val.PACKAGE_DIR` 查询实际产物目录，限制于 `/builder` 工作区；校验非空固件和唯一内核版本，仅暂存 `BIN_DIR` 顶层常规文件和构建配置，不复制 `packages/`。
 - Release 说明写入失败必须中止发布；空内容过滤应正常返回，托管 Runner 完整编译及 Release 需另行验收。
 - 不得未经批准重新合并调度与编译职责、改变 Cron、目标集合、默认参数、Push 路径条件、发布策略或新增 `repository_dispatch`。两个工作流的调用契约变更须在同一提交中完成，并验证调用关系及发布权限。
