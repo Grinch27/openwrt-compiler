@@ -53,7 +53,7 @@
 
 参考文件：
 
-[Grinch27/openwrt-compiler/build-openwrt.yml](https://github.com/Grinch27/openwrt-compiler/blob/main/.github/workflows/build-openwrt.yml)（跨仓库基础路线参考）
+[Grinch27/openwrt-compiler/build-openwrt.yml](https://github.com/Grinch27/openwrt-compiler/blob/main/.github/archive/workflows/build-openwrt.yml)（跨仓库基础路线参考）
 
 所有新项目原则上先使用 Non-container 构建路线。
 
@@ -526,11 +526,9 @@ https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workf
 
 执行任务前必须先检查 `README.md`、`.github/workflows/` 下与任务有关的工作流、共享 Actions 接口，以及被调用的本仓库构建配置。
 
-当前已确认的参考入口：
+统一编译入口为 `.github/workflows/call-build_allinone.yml`。自动 Tier 使用 Container。Custom 手动构建默认 `Use_Container=true`，设为 `false` 可选择 Non-container。
 
-- Non-container：`.github/workflows/build-openwrt.yml`。
-- Container 正式入口：`.github/workflows/call-build_allinone.yml`，仅支持固定 Tier 自动调度和 Custom 手动构建。
-- Container 历史独立入口：`.github/workflows/build_openwrt_indocker.yml`，保留至 Custom 实际编译和发布验收通过后，按授权归档。
+历史编译入口存放在 `.github/archive/workflows/`。
 
 正式入口只保留 `schedule`、`push`、`workflow_dispatch`。`cron_everyday` 对应 Tier 1，`cron_sunday` 对应 Tier 2，匹配路径的 main push 对应 Tier 3；`workflow_dispatch` 只允许 Custom 参数化构建，不提供 Tier 选择器。不得为正式入口重新引入 `workflow_call` 或 `repository_dispatch`，除非获得新的明确授权。
 
@@ -552,9 +550,9 @@ Part I 描述的是未来修改必须遵循的规范，不代表现有工作流�
 
 ## 3. 两路线的兼容性与权限
 
-以现有 Non-container 实现作为基础路线研究对象，但不能在没有实际完整构建证据时宣称它已经稳定。
+归档的 `build-openwrt.yml` 是 Non-container 基础路线的实现参考。统一入口的 Non-container 路线须以实际完整构建作为稳定性验收依据。
 
-Container 路线应重点参考 Part I 指定的 U-Boot 工作流结构，并以当前 `build_openwrt_indocker.yml`、`call-build_allinone.yml` 的实际代码为迁移输入。
+Container 路线应重点参考 Part I 指定的 U-Boot 工作流结构，以及正式入口 `call-build_allinone.yml` 和归档的 `build_openwrt_indocker.yml`。
 
 部分现有 Container 工作流启用了高权限模式与宿主路径挂载；不得直接将其复制为新 Job 的默认配置，也不得未经单独审查和授权新增特权、系统目录挂载或 Docker Socket 访问。
 
