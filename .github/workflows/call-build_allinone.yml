@@ -399,7 +399,6 @@ jobs:
 
       - name: Copy to output
         id: output
-        working-directory: /
         run: |
           echo -e "Current working directory: $(pwd)"
 
