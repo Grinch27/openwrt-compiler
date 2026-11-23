@@ -141,7 +141,7 @@ jobs:
     runs-on: ${{ needs.runner-image.outputs.RUNNER_IMAGE }}
     container:
       # An empty image selects the host runner.
-      image: ${{ (inputs.Use_Container || (github.event_name == 'push' && endsWith(github.workflow_ref, '/.github/workflows/call-build_allinone.yml@refs/heads/main'))) && 'ubuntu:devel' || '' }}
+      image: ${{ (inputs.Use_Container || !inputs.Target_System) && 'ubuntu:devel' || '' }}
       options: >-
         --privileged
         --user=0:0
@@ -206,6 +206,7 @@ jobs:
       MD_release: "/builder/release.md"
     defaults:
       run:
+        shell: bash
         working-directory: *path_target
     steps:
       # ========== General Environment Setup: Start ==========
@@ -337,7 +338,6 @@ jobs:
 
       - name: (patches) Apply patches
         id: patch
-        if: ${{ 'true' == 'false' }} # disable
         env:
           PATH_patches: ${{ env.PATH_patches }}
         run: |
